@@ -110,6 +110,9 @@ class HmmmProgram:
     
     def add_instructions(self, instructions: List[HmmmInstruction]):
         self.code.extend(instructions)
+    
+    def add_comment(self, comment: str):
+        self.code.append(f"# {comment}")
 
     def add_stack_pointer_code(self):
         """
@@ -119,7 +122,7 @@ class HmmmProgram:
         self.code.insert(0, generate_instruction("setn", HmmmRegister.R15, len(self.code)+1))
     
     def assign_line_numbers(self):
-        for i, instruction in enumerate(self.code):
+        for i, instruction in enumerate(filter(lambda instruction: type(instruction) == HmmmInstruction, self.code)):
             instruction.address.address = i
     
     def __getitem__(self, index: int):
