@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import List, Set, Dict, Tuple, Optional, NamedTuple, Union
+from dataclasses import dataclass
 
 # Documentation for Hmmm is here: https://www.cs.hmc.edu/~cs5grad/cs5/hmmm/documentation/documentation.html
 
@@ -21,20 +22,34 @@ class HmmmRegister(Enum):
     R14 = "r14"
     R15 = "r15"
 
-class MemoryAddress(NamedTuple):
+@dataclass
+class MemoryAddress:
     line: int
 
-class HmmmInstruction(NamedTuple):
+@dataclass
+class HmmmInstruction:
     opcode: str
     line: MemoryAddress
-    arg1: Optional(Union(HmmmRegister, int))
-    arg2: Optional(Union(HmmmRegister, int, MemoryAddress))
-    arg3: Optional(HmmmRegister)
+    arg1: Optional[Union[HmmmRegister, int]]
+    arg2: Optional[Union[HmmmRegister, int, MemoryAddress]]
+    arg3: Optional[HmmmRegister]
+
+    def format_arg(self, arg):
+        if arg is None:
+            return ""
+        elif isinstance(arg, HmmmRegister):
+            return arg.value
+        elif isinstance(arg, MemoryAddress):
+            return f"{arg.line}"
+        elif isinstance(arg, int):
+            return str(arg)
+        else:
+            raise Exception(f"Invalid argument type: {arg}")
 
     def __str__(self):
-        return f"{self.line.line} {self.opcode} {self.arg1} {self.arg2} {self.arg3}"
+        return f"{self.line.line} {self.opcode} {self.format_arg(self.arg1)} {self.format_arg(self.arg2)} {self.format_arg(self.arg3)}"
 
-def generate_instruction(opcode: str, arg1: Optional(Union(HmmmRegister, int)), arg2: Optional(Union(HmmmRegister, int, MemoryAddress)), arg3: Optional(HmmmRegister)) -> HmmmInstruction:
+def generate_instruction(opcode: str, arg1: Optional[Union[HmmmRegister, int]] = None, arg2: Optional[Union[HmmmRegister, int, MemoryAddress]] = None, arg3: Optional[HmmmRegister] = None) -> HmmmInstruction:
     if opcode == "halt" or opcode == "nop":
         assert arg1 == None
         assert arg2 == None
@@ -87,20 +102,46 @@ def generate_instruction(opcode: str, arg1: Optional(Union(HmmmRegister, int)), 
 
 class HmmmProgram:
     def __init__(self):
-        self.code: List(HmmmInstruction) = []
+        self.code: List[HmmmInstruction] = []
     
     def add_instruction(self, instruction: HmmmInstruction):
         self.code.append(instruction)
     
-    def add_instructions(self, instructions: List(HmmmInstruction)):
+    def add_instructions(self, instructions: List[HmmmInstruction]):
         self.code.extend(instructions)
 
     def assign_line_numbers(self):
         for i, instruction in enumerate(self.code):
-            instruction.line = MemoryAddress(i)
+            instruction.line.line = i
     
     def __getitem__(self, index: int):
         return self.code[index]
     
     def __str__(self):
         return "\n".join([str(instruction) for instruction in self.code])
+
+if __name__ == "__main__":
+    print("Simple Adder")
+    simple_adder_program = HmmmProgram()
+    simple_adder_program.add_instruction(generate_instruction("read", HmmmRegister.R1))
+    simple_adder_program.add_instruction(generate_instruction("read", HmmmRegister.R2))
+    simple_adder_program.add_instruction(generate_instruction("add", HmmmRegister.R3, HmmmRegister.R1, HmmmRegister.R2))
+    simple_adder_program.add_instruction(generate_instruction("write", HmmmRegister.R3))
+    simple_adder_program.add_instruction(generate_instruction("halt"))
+    simple_adder_program.assign_line_numbers()
+    print(simple_adder_program)
+    print("")
+    print("Minimum")
+    minimum_program = HmmmProgram()
+    minimum_program.add_instruction(generate_instruction("read", HmmmRegister.R1))
+    minimum_program.add_instruction(generate_instruction("read", HmmmRegister.R2))
+    minimum_program.add_instruction(generate_instruction("sub", HmmmRegister.R3, HmmmRegister.R1, HmmmRegister.R2))
+    write_r2 = generate_instruction("write", HmmmRegister.R2)
+    minimum_program.add_instruction(generate_instruction("jgtzn", HmmmRegister.R3, write_r2.line))
+    minimum_program.add_instruction(generate_instruction("write", HmmmRegister.R1))
+    halt = generate_instruction("halt")
+    minimum_program.add_instruction(generate_instruction("jumpn", halt.line))
+    minimum_program.add_instruction(write_r2)
+    minimum_program.add_instruction(halt)
+    minimum_program.assign_line_numbers()
+    print(minimum_program)
