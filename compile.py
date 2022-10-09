@@ -47,7 +47,7 @@ def parse_binary_op(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Non
     right_register = unused_registers.pop()
 
     left = None
-    program.add_instruction(generate_instruction("pushr", left_register, HmmmRegister.R13))
+    program.add_instruction(generate_instruction("pushr", left_register))
     if isinstance(node.left, pycparser.c_ast.ID):
         left = HmmmRegister(node.left.name)
         program.add_instruction(generate_instruction("copy", left_register, left))
@@ -55,15 +55,15 @@ def parse_binary_op(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Non
         left = int(node.left.value)
         program.add_instruction(generate_instruction("setn", left_register, left))
     elif isinstance(node.left, pycparser.c_ast.BinaryOp):
-        program.add_instruction(generate_instruction("pushr", HmmmRegister.R13, HmmmRegister.R15))
+        program.add_instruction(generate_instruction("pushr", HmmmRegister.R13))
         program.add_instruction(generate_instruction("copy", left_register, HmmmRegister.R13))
         parse_binary_op(node.left, program)
-        program.add_instruction(generate_instruction("popr", HmmmRegister.R13, HmmmRegister.R15))
+        program.add_instruction(generate_instruction("popr", HmmmRegister.R13))
     
     ### Right Side ###
     # The logic here is the same as the left side
     right = None
-    program.add_instruction(generate_instruction("pushr", right_register, HmmmRegister.R13))
+    program.add_instruction(generate_instruction("pushr", right_register))
     if isinstance(node.right, pycparser.c_ast.ID):
         right = HmmmRegister(node.right.name)
         program.add_instruction(generate_instruction("copy", right_register, right))
@@ -71,10 +71,10 @@ def parse_binary_op(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Non
         right = int(node.right.value)
         program.add_instruction(generate_instruction("setn", right_register, right))
     elif isinstance(node.right, pycparser.c_ast.BinaryOp):
-        program.add_instruction(generate_instruction("pushr", HmmmRegister.R13, HmmmRegister.R15))
+        program.add_instruction(generate_instruction("pushr", HmmmRegister.R13))
         program.add_instruction(generate_instruction("copy", right_register, HmmmRegister.R13))
         parse_binary_op(node.right, program)
-        program.add_instruction(generate_instruction("popr", HmmmRegister.R13, HmmmRegister.R15))
+        program.add_instruction(generate_instruction("popr", HmmmRegister.R13))
     
     ### Operation ###
     if node.op == "+":
@@ -88,8 +88,8 @@ def parse_binary_op(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Non
     elif node.op == "%":
         program.add_instruction(generate_instruction("mod", left_register, right_register, HmmmRegister.R13))
     
-    program.add_instruction(generate_instruction("popr", right_register, HmmmRegister.R15))
-    program.add_instruction(generate_instruction("popr", left_register, HmmmRegister.R15))
+    program.add_instruction(generate_instruction("popr", right_register))
+    program.add_instruction(generate_instruction("popr", left_register))
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser("Compile a C file into Hmmm assembly")
@@ -129,7 +129,7 @@ if __name__ == "__main__":
                         elif isinstance(stmt.init, pycparser.c_ast.BinaryOp):
                             parse_binary_op(stmt.init, program)
                             program.add_instruction(generate_instruction("copy", HmmmRegister(stmt.name), HmmmRegister.R13))
-                            program.add_instruction(generate_instruction("popr", HmmmRegister.R13, HmmmRegister.R15))
+                            program.add_instruction(generate_instruction("popr", HmmmRegister.R13))
                     
                     elif type(stmt) == pycparser.c_ast.FuncCall:
                         assert stmt.name.name == "printf", "Only printf is supported"
@@ -139,5 +139,6 @@ if __name__ == "__main__":
                         program.add_instruction(generate_instruction("write", HmmmRegister(stmt.args.exprs[1].name)))
     
     program.add_stack_pointer_code()
+    program.add_instruction(generate_instruction("halt"))
     program.assign_line_numbers()
     print(program)

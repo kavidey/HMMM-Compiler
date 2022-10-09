@@ -88,8 +88,9 @@ def generate_instruction(opcode: str, arg1: Optional[Union[HmmmRegister, int]] =
         assert arg3 == None
     elif opcode == "pushr" or opcode == "popr":
         assert type(arg1) == HmmmRegister
-        assert type(arg2) == HmmmRegister
+        assert arg2 == None
         assert arg3 == None
+        arg2 = HmmmRegister.R15
     elif opcode == "loadn" or opcode == "storen":
         assert type(arg1) == HmmmRegister
         assert type(arg2) == MemoryAddress
