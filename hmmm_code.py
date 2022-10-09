@@ -88,7 +88,7 @@ def generate_instruction(opcode: str, arg1: Optional[Union[HmmmRegister, int]] =
         assert arg3 == None
     elif opcode == "pushr" or opcode == "popr":
         assert type(arg1) == HmmmRegister
-        assert arg2 == HmmmRegister
+        assert type(arg2) == HmmmRegister
         assert arg3 == None
     elif opcode == "loadn" or opcode == "storen":
         assert type(arg1) == HmmmRegister
@@ -110,6 +110,13 @@ class HmmmProgram:
     def add_instructions(self, instructions: List[HmmmInstruction]):
         self.code.extend(instructions)
 
+    def add_stack_pointer_code(self):
+        """
+        This function should only be called once, after the entire program has been generated.
+        It adds code to the beginning of the program to initialize the stack pointer.
+        """
+        self.code.insert(0, generate_instruction("setn", HmmmRegister.R15, len(self.code)+1))
+    
     def assign_line_numbers(self):
         for i, instruction in enumerate(self.code):
             instruction.address.address = i
