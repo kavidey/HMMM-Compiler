@@ -24,12 +24,12 @@ class HmmmRegister(Enum):
 
 @dataclass
 class MemoryAddress:
-    line: int
+    address: int
 
 @dataclass
 class HmmmInstruction:
     opcode: str
-    line: MemoryAddress
+    address: MemoryAddress
     arg1: Optional[Union[HmmmRegister, int]]
     arg2: Optional[Union[HmmmRegister, int, MemoryAddress]]
     arg3: Optional[HmmmRegister]
@@ -40,14 +40,14 @@ class HmmmInstruction:
         elif isinstance(arg, HmmmRegister):
             return arg.value
         elif isinstance(arg, MemoryAddress):
-            return f"{arg.line}"
+            return f"{arg.address}"
         elif isinstance(arg, int):
             return str(arg)
         else:
             raise Exception(f"Invalid argument type: {arg}")
 
     def __str__(self):
-        return f"{self.line.line} {self.opcode} {self.format_arg(self.arg1)} {self.format_arg(self.arg2)} {self.format_arg(self.arg3)}"
+        return f"{self.address.address} {self.opcode} {self.format_arg(self.arg1)} {self.format_arg(self.arg2)} {self.format_arg(self.arg3)}"
 
 def generate_instruction(opcode: str, arg1: Optional[Union[HmmmRegister, int]] = None, arg2: Optional[Union[HmmmRegister, int, MemoryAddress]] = None, arg3: Optional[HmmmRegister] = None) -> HmmmInstruction:
     if opcode == "halt" or opcode == "nop":
@@ -112,7 +112,7 @@ class HmmmProgram:
 
     def assign_line_numbers(self):
         for i, instruction in enumerate(self.code):
-            instruction.line.line = i
+            instruction.address.address = i
     
     def __getitem__(self, index: int):
         return self.code[index]
@@ -137,10 +137,10 @@ if __name__ == "__main__":
     minimum_program.add_instruction(generate_instruction("read", HmmmRegister.R2))
     minimum_program.add_instruction(generate_instruction("sub", HmmmRegister.R3, HmmmRegister.R1, HmmmRegister.R2))
     write_r2 = generate_instruction("write", HmmmRegister.R2)
-    minimum_program.add_instruction(generate_instruction("jgtzn", HmmmRegister.R3, write_r2.line))
+    minimum_program.add_instruction(generate_instruction("jgtzn", HmmmRegister.R3, write_r2.address))
     minimum_program.add_instruction(generate_instruction("write", HmmmRegister.R1))
     halt = generate_instruction("halt")
-    minimum_program.add_instruction(generate_instruction("jumpn", halt.line))
+    minimum_program.add_instruction(generate_instruction("jumpn", halt.address))
     minimum_program.add_instruction(write_r2)
     minimum_program.add_instruction(halt)
     minimum_program.assign_line_numbers()
