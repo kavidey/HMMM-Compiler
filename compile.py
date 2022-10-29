@@ -129,9 +129,10 @@ if __name__ == "__main__":
 
     # Generate the AST
     ast = parse_file(args.filename, use_cpp=True,
+    
             cpp_path='clang',
             cpp_args=['-E', r'-Iutils/pycparser/utils/fake_libc_include'])
-    # ast.show(showcoord=True)
+    ast.show(showcoord=True)
 
     # Make sure the AST contains valid code
     check_ast(ast)
@@ -147,7 +148,6 @@ if __name__ == "__main__":
                         assert stmt.type.type.names[0] == "int", "Only ints are supported"
                         assert re.match("r\d", stmt.name), "Variables names must be in the form rX"
                         assert 1 <= int(stmt.name[1:]) <= 12, "Variables must be named r1, r2, ..., r12"
-                        assert stmt.init != None, "Variable declarations must have an initial value"
                         
                         if isinstance(stmt.init, pycparser.c_ast.Constant):
                             assert -128 <= int(stmt.init.value) <= 127, "Variable initial values must be between -128 and 127"
@@ -156,13 +156,29 @@ if __name__ == "__main__":
                             parse_binary_op(stmt.init, program)
                             program.add_instruction(generate_instruction("copy", HmmmRegister(stmt.name), HmmmRegister.R13))
                             program.add_instruction(generate_instruction("popr", HmmmRegister.R13))
+                        elif isinstance(stmt.init, pycparser.c_ast.ID):
+                            program.add_instruction(generate_instruction("copy", HmmmRegister(stmt.name), HmmmRegister(stmt.init.name)))
+                        # Test this later
+                        # elif isinstance(stmt.init, pycparser.c_ast.UnaryOp):
+                        #     assert stmt.init.op == "-", "Only unary negation is supported"
+                        #     assert isinstance(stmt.init.expr, pycparser.c_ast.Constant), "Unary negation must be applied to a constant"
+                        #     assert -128 <= int(stmt.init.expr.value) <= 127, "Unary negation must be applied to a constant between -128 and 127"
+                        #     program.add_instruction(generate_instruction("setn", HmmmRegister(stmt.name), -int(stmt.init.expr.value)))
+                        elif stmt.init == None:
+                            program.add_instruction(generate_instruction("setn", HmmmRegister(stmt.name), 0))
                     
                     elif type(stmt) == pycparser.c_ast.FuncCall:
-                        assert stmt.name.name == "printf", "Only printf is supported"
-                        assert stmt.args.exprs[0].value == '"%d\\n"', "Only printf(\"%d\\n\", ...) is supported"
-                        assert len(stmt.args.exprs) == 2, "Only printf(\"%d\\n\", ...) is supported"
+                        assert stmt.name.name in ["printf", "scanf"], "Only printf and scanf are supported"
+                        if stmt.name.name == "printf":
+                            assert stmt.args.exprs[0].value == '"%d\\n"', "Only printf(\"%d\\n\", ...) is supported"
+                            assert len(stmt.args.exprs) == 2, "Only printf(\"%d\\n\", ...) is supported"
 
-                        program.add_instruction(generate_instruction("write", HmmmRegister(stmt.args.exprs[1].name)))
+                            program.add_instruction(generate_instruction("write", HmmmRegister(stmt.args.exprs[1].name)))
+                        elif stmt.name.name == "scanf":
+                            assert stmt.args.exprs[0].value == '"%d"', "Only scanf(\"%d\", ...) is supported"
+                            assert len(stmt.args.exprs) == 2, "Only scanf(\"%d\", ...) is supported"
+
+                            program.add_instruction(generate_instruction("read", HmmmRegister(stmt.args.exprs[1].expr.name)))
     
     program.add_instruction(generate_instruction("halt"))
     program.add_stack_pointer_code()

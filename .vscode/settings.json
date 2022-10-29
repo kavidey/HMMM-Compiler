@@ -16,5 +16,6 @@
         "setn",
         "storen",
         "storer"
-    ]
+    ],
+    "python.analysis.typeCheckingMode": "basic"
 }
