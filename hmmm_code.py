@@ -30,7 +30,7 @@ class MemoryAddress:
 class HmmmInstruction:
     opcode: str
     address: MemoryAddress
-    arg1: Optional[Union[HmmmRegister, int]]
+    arg1: Optional[Union[HmmmRegister, int, MemoryAddress]]
     arg2: Optional[Union[HmmmRegister, int, MemoryAddress]]
     arg3: Optional[HmmmRegister]
 
@@ -49,7 +49,7 @@ class HmmmInstruction:
     def __str__(self):
         return f"{self.address.address} {self.opcode} {self.format_arg(self.arg1)} {self.format_arg(self.arg2)} {self.format_arg(self.arg3)}"
 
-def generate_instruction(opcode: str, arg1: Optional[Union[HmmmRegister, int]] = None, arg2: Optional[Union[HmmmRegister, int, MemoryAddress]] = None, arg3: Optional[HmmmRegister] = None) -> HmmmInstruction:
+def generate_instruction(opcode: str, arg1: Optional[Union[HmmmRegister, int, MemoryAddress]] = None, arg2: Optional[Union[HmmmRegister, int, MemoryAddress]] = None, arg3: Optional[HmmmRegister] = None) -> HmmmInstruction:
     if opcode == "halt" or opcode == "nop":
         assert arg1 == None
         assert arg2 == None
