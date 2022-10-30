@@ -184,9 +184,9 @@ def parse_condition(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Tup
         assert False, "Invalid operation"
     
     program.add_instruction(jump_instruction)
-    program.add_instructions(cleanup_code)
+    program.add_instructions(copy.deepcopy(cleanup_code))
 
-    return jump_instruction, copy.deepcopy(cleanup_code)
+    return jump_instruction, cleanup_code
 
 
 def parse_if(node: pycparser.c_ast.If, program: HmmmProgram) -> None:
@@ -219,7 +219,7 @@ def parse_if(node: pycparser.c_ast.If, program: HmmmProgram) -> None:
 
 
 def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram) -> None:
-    for stmt in child.body.block_items:
+    for stmt in node.block_items:
         # If the user is declaring a new variable
         if isinstance(stmt, pycparser.c_ast.Decl):
             parse_decl(stmt, program)
@@ -231,12 +231,21 @@ def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram) -> None
                 assert stmt.args.exprs[0].value == '"%d\\n"', "Only printf(\"%d\\n\", ...) is supported"
                 assert len(stmt.args.exprs) == 2, "Only printf(\"%d\\n\", ...) is supported"
 
-                program.add_instruction(generate_instruction("write", HmmmRegister(stmt.args.exprs[1].name)))
+                # If the argument is a variable
+                if isinstance(stmt.args.exprs[1], pycparser.c_ast.ID):
+                    program.add_instruction(generate_instruction("write", HmmmRegister(stmt.args.exprs[1].name)))
+                # If the argument is a constant
+                elif isinstance(stmt.args.exprs[1], pycparser.c_ast.Constant):
+                    program.add_instruction(generate_instruction("pushr", HmmmRegister.R13))
+                    program.add_instruction(generate_instruction("setn", HmmmRegister.R13, int(stmt.args.exprs[1].value)))
+                    program.add_instruction(generate_instruction("write", HmmmRegister.R0))
+                    program.add_instruction(generate_instruction("popr", HmmmRegister.R13))
             elif stmt.name.name == "scanf":
                 assert stmt.args.exprs[0].value == '"%d"', "Only scanf(\"%d\", ...) is supported"
                 assert len(stmt.args.exprs) == 2, "Only scanf(\"%d\", ...) is supported"
 
                 program.add_instruction(generate_instruction("read", HmmmRegister(stmt.args.exprs[1].expr.name)))
+
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser("Compile a C file into Hmmm assembly")
     argparser.add_argument(
