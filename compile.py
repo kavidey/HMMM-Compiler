@@ -142,8 +142,12 @@ def parse_unary_op(node: pycparser.c_ast.UnaryOp, program: HmmmProgram) -> None:
         program.add_instruction(generate_instruction("sub", HmmmRegister.R13, HmmmRegister.R0, HmmmRegister.R13))
     elif node.op == "p--":
         program.add_instruction(generate_instruction("addn", HmmmRegister.R13, -1))
+    elif node.op == "p++":
+        program.add_instruction(generate_instruction("addn", HmmmRegister.R13, 1))
     # elif node.op == "!":
     #     program.add_instruction(generate_instruction("not", HmmmRegister.R13, HmmmRegister.R13))
+    else:
+        raise NotImplementedError(f"Unary operation {node.op} is not implemented")
 
 def parse_decl_assign(node: Union[pycparser.c_ast.Decl, pycparser.c_ast.Assignment], program: HmmmProgram) -> None:
     """Parses a declaration and adds the appropriate instructions to the given program
@@ -299,8 +303,8 @@ def parse_while(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
 
     jump_if_not_done, cleanup_code = parse_condition(node.cond, program)
 
-    jump_to_end = generate_instruction("jumpn", MemoryAddress(-1))
-    program.add_instruction(jump_to_end)
+    jump_if_done = generate_instruction("jumpn", MemoryAddress(-1))
+    program.add_instruction(jump_if_done)
 
     beginning_of_while = generate_instruction("nop")
     program.add_instruction(beginning_of_while)
@@ -313,8 +317,51 @@ def parse_while(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
 
     end_of_while = generate_instruction("nop")
     program.add_instruction(end_of_while)
-    jump_to_end.arg1 = end_of_while.address
+    jump_if_done.arg1 = end_of_while.address
 
+def parse_for(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
+    """Parses a for loop and adds the appropriate instructions to the given program
+    
+    Args:
+        node (pycparser.c_ast.While) -- The node to parse
+        program (HmmmProgram) -- The program to add instructions to
+    """
+
+    assert isinstance(node.cond, pycparser.c_ast.BinaryOp), "Only binary operations are supported for loops conditions"
+    assert node.cond.op in ["<", ">", "<=", ">=", "==", "!="], "Only <, >, <=, >=, ==, and != are supported"
+
+    assert isinstance(node.next, pycparser.c_ast.UnaryOp), "Only unary operations are supported for loops next statements"
+    assert node.next.op == "p--" or node.next.op == "p++", "Only -- and ++ are supported"
+
+    assert len(node.init.decls) == 1, "Only one variable can be declared in a for loop"
+
+    parse_decl_assign(node.init.decls[0], program)
+
+    beginning_of_for_check = generate_instruction("nop")
+    program.add_instruction(beginning_of_for_check)
+
+    jump_if_not_done, cleanup_code = parse_condition(node.cond, program)
+
+    jump_if_done = generate_instruction("jumpn", MemoryAddress(-1))
+    program.add_instruction(jump_if_done)
+    
+    beginning_of_for = generate_instruction("nop")
+    program.add_instruction(beginning_of_for)
+    jump_if_not_done.arg2 = beginning_of_for.address
+
+    program.add_instructions(cleanup_code)
+    parse_compound(node.stmt, program)
+
+    program.add_instruction(generate_instruction("pushr", HmmmRegister.R13))
+    parse_unary_op(node.next, program)
+    program.add_instruction(generate_instruction("copy", HmmmRegister(node.next.expr.name), HmmmRegister.R13))
+    program.add_instruction(generate_instruction("popr", HmmmRegister.R13))
+
+    program.add_instruction(generate_instruction("jumpn", beginning_of_for_check.address))
+
+    end_of_for = generate_instruction("nop")
+    program.add_instruction(end_of_for)
+    jump_if_done.arg1 = end_of_for.address
 
 def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram) -> None:
     """Parses a compound statement and adds the appropriate instructions to the given program
@@ -332,6 +379,8 @@ def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram) -> None
             parse_if(stmt, program)
         elif isinstance(stmt, pycparser.c_ast.While):
             parse_while(stmt, program)
+        elif isinstance(stmt, pycparser.c_ast.For):
+            parse_for(stmt, program)
         elif isinstance(stmt, pycparser.c_ast.FuncCall):
             assert stmt.name.name in ["printf", "scanf"], "Only printf and scanf are supported"
             if stmt.name.name == "printf":
