@@ -248,12 +248,17 @@ def parse_condition(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Tup
 
     return jump_instruction, cleanup_code
 
-def parse_if(node: pycparser.c_ast.If, program: HmmmProgram) -> None:
+def parse_if(node: pycparser.c_ast.If, program: HmmmProgram, is_in_loop=False) -> Tuple[List[HmmmInstruction], List[HmmmInstruction]]:
     """Parses an if statement and adds the appropriate instructions to the given program
     
     Args:
         node (pycparser.c_ast.If) -- The node to parse
         program (HmmmProgram) -- The program to add instructions to
+        is_in_loop (bool) -- Whether or not the if statement is in a loop
+    
+    Returns:
+        break_code (List[HmmmInstruction]) -- The instructions to execute when a break statement is encountered. The user needs to set the jump address of these manually and passed up to any outer loops
+        continue_code (List[HmmmInstruction]) -- The instructions to execute when a continue statement is encountered. The user needs to set the jump address of these manually and passed up to any outer loops
     """
 
     assert isinstance(node.cond, pycparser.c_ast.BinaryOp), "Only binary operations are supported in if statements"
@@ -266,7 +271,7 @@ def parse_if(node: pycparser.c_ast.If, program: HmmmProgram) -> None:
     
     program.add_instructions(cleanup_code)
     jump_iftrue.arg2 = cleanup_code[-1].address
-    parse_compound(node.iftrue, program)
+    break_statements, continue_statments = parse_compound(node.iftrue, program, is_in_loop)
 
     jump_end = None
     # If there is an else statement add it to the program
@@ -277,7 +282,7 @@ def parse_if(node: pycparser.c_ast.If, program: HmmmProgram) -> None:
         program.add_instruction(beginning_of_iffalse)
         jump_iffalse.arg1 = beginning_of_iffalse.address
         if isinstance(node.iffalse, pycparser.c_ast.Compound):
-            parse_compound(node.iffalse, program)
+            parse_compound(node.iffalse, program, is_in_loop)
         elif isinstance(node.iffalse, pycparser.c_ast.If):
             parse_if(node.iffalse, program)
     else:
@@ -286,6 +291,8 @@ def parse_if(node: pycparser.c_ast.If, program: HmmmProgram) -> None:
     end_of_if_block = generate_instruction("nop")
     program.add_instruction(end_of_if_block)
     jump_end.arg1 = end_of_if_block.address
+
+    return break_statements, continue_statments
 
 def parse_while(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
     """Parses a while loop and adds the appropriate instructions to the given program
@@ -311,13 +318,19 @@ def parse_while(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
     jump_if_not_done.arg2 = beginning_of_while.address
 
     program.add_instructions(cleanup_code)
-    parse_compound(node.stmt, program)
+    break_statements, continue_statements = parse_compound(node.stmt, program, is_in_loop=True)
 
     program.add_instruction(generate_instruction("jumpn", beginning_of_while_check.address))
 
     end_of_while = generate_instruction("nop")
     program.add_instruction(end_of_while)
     jump_if_done.arg1 = end_of_while.address
+
+    for break_statement in break_statements:
+        break_statement.arg1 = end_of_while.address
+
+    for continue_statement in continue_statements:
+        continue_statement.arg1 = beginning_of_while_check.address
 
 def parse_for(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
     """Parses a for loop and adds the appropriate instructions to the given program
@@ -350,7 +363,7 @@ def parse_for(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
     jump_if_not_done.arg2 = beginning_of_for.address
 
     program.add_instructions(cleanup_code)
-    parse_compound(node.stmt, program)
+    break_statements, continue_statements = parse_compound(node.stmt, program, is_in_loop=True)
 
     program.add_instruction(generate_instruction("pushr", HmmmRegister.R13))
     parse_unary_op(node.next, program)
@@ -363,24 +376,56 @@ def parse_for(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
     program.add_instruction(end_of_for)
     jump_if_done.arg1 = end_of_for.address
 
-def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram) -> None:
+    for break_statement in break_statements:
+        break_statement.arg1 = end_of_for.address
+    
+    for continue_statement in continue_statements:
+        continue_statement.arg1 = beginning_of_for_check.address
+
+def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram, is_in_loop = False) -> Tuple[List[HmmmInstruction], List[HmmmInstruction]]:
     """Parses a compound statement and adds the appropriate instructions to the given program
     
     Args:
         node (pycparser.c_ast.Compound) -- The node to parse
         program (HmmmProgram) -- The program to add instructions to
+        is_in_loop (bool) -- Whether or not the compound statement is in a loop (affects how break & continue are handled)
+
+    Returns:
+        break_code (List[HmmmInstruction]) -- The instructions to execute when a break statement is encountered. The user needs to set the jump address of these manually
+        continue_code (List[HmmmInstruction]) -- The instructions to execute when a continue statement is encountered. The user needs to set the jump address of these manually
     """
+
+    break_code = []
+    continue_code = []
 
     for stmt in node.block_items:
         # If the user is declaring a new variable
         if isinstance(stmt, pycparser.c_ast.Decl) or isinstance(stmt, pycparser.c_ast.Assignment):
             parse_decl_assign(stmt, program)
         elif isinstance(stmt, pycparser.c_ast.If):
-            parse_if(stmt, program)
+            break_statements, if_statements = parse_if(stmt, program, is_in_loop)
+            break_code += break_statements
+            continue_code += if_statements
         elif isinstance(stmt, pycparser.c_ast.While):
             parse_while(stmt, program)
         elif isinstance(stmt, pycparser.c_ast.For):
             parse_for(stmt, program)
+        elif isinstance(stmt, pycparser.c_ast.Continue):
+            if is_in_loop:
+                continue_statement = generate_instruction("jumpn", MemoryAddress(-1))
+                program.add_instruction(continue_statement)
+                continue_code.append(continue_statement)
+            else:
+                raise Exception("Continue statement not in a loop")
+        elif isinstance(stmt, pycparser.c_ast.Break):
+            if is_in_loop:
+                break_statement = generate_instruction("jumpn", MemoryAddress(-1))
+                program.add_instruction(break_statement)
+                break_code.append(break_statement)
+            else:
+                raise Exception("Break statement not in a loop")
+        elif isinstance(stmt, pycparser.c_ast.Compound):
+            parse_compound(stmt, program)
         elif isinstance(stmt, pycparser.c_ast.FuncCall):
             assert stmt.name.name in ["printf", "scanf"], "Only printf and scanf are supported"
             if stmt.name.name == "printf":
@@ -416,6 +461,8 @@ def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram) -> None
             pass
         else:
             raise NotImplementedError(f"Unsupported statement: {type(stmt)}")
+    
+    return break_code, continue_code
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser("Compile a C file into Hmmm assembly")
