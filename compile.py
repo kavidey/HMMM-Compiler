@@ -74,6 +74,7 @@ def parse_binary_op(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Non
     left = None
     # program.add_comment("Left Side")
     program.add_instruction(generate_instruction("pushr", left_register))
+    # TODO: Add Unary Op
     if isinstance(node.left, pycparser.c_ast.ID):
         left = HmmmRegister(node.left.name)
         program.add_instruction(generate_instruction("copy", left_register, left))
@@ -91,6 +92,7 @@ def parse_binary_op(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Non
     right = None
     # program.add_comment("Right Side")
     program.add_instruction(generate_instruction("pushr", right_register))
+    # TODO: Add Unary Op
     if isinstance(node.right, pycparser.c_ast.ID):
         right = HmmmRegister(node.right.name)
         program.add_instruction(generate_instruction("copy", right_register, right))
@@ -119,11 +121,34 @@ def parse_binary_op(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Non
     program.add_instruction(generate_instruction("popr", right_register))
     program.add_instruction(generate_instruction("popr", left_register))
 
+def parse_unary_op(node: pycparser.c_ast.UnaryOp, program: HmmmProgram) -> None:
+    """Parses a unary operation and adds the appropriate instructions to the given program
+
+    Recursively walks through the tree of the given node and turns unary operations (-, !) into Hmmm instructions.
+    
+    Args:
+        node (pycparser.c_ast.UnaryOp) -- The node to parse
+        program (HmmmProgram) -- The program to add instructions to
+    """
+
+    if isinstance(node.expr, pycparser.c_ast.ID):
+        register = HmmmRegister(node.expr.name)
+    elif isinstance(node.expr, pycparser.c_ast.Constant):
+        program.add_instruction(generate_instruction("setn", HmmmRegister.R13, int(node.expr.value)))
+    elif isinstance(node.expr, pycparser.c_ast.BinaryOp):
+        parse_binary_op(node.expr, program)
+    
+    if node.op == "-":
+        program.add_instruction(generate_instruction("sub", HmmmRegister.R13, HmmmRegister.R0, HmmmRegister.R13))
+    # elif node.op == "!":
+    #     program.add_instruction(generate_instruction("not", HmmmRegister.R13, HmmmRegister.R13))
+
 def parse_decl(node: pycparser.c_ast.Decl, program: HmmmProgram) -> None:
     assert node.type.type.names[0] == "int", "Only ints are supported"
     assert re.match("r\d", node.name), "Variables names must be in the form rX"
     assert 1 <= int(node.name[1:]) <= 12, "Variables must be named r1, r2, ..., r12"
 
+    # TODO: Add Unary Op
     if isinstance(node.init, pycparser.c_ast.Constant):
         assert -128 <= int(node.init.value) <= 127, "Variable initial values must be between -128 and 127"
         program.add_instruction(generate_instruction("setn", HmmmRegister(node.name), int(node.init.value)))
@@ -151,6 +176,7 @@ def parse_condition(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Tup
     left_register = unused_registers.pop()
 
     ### Left Side ###
+    # TODO: Add Unary Op
     program.add_instruction(generate_instruction("pushr", left_register))
     cleanup_code.append(generate_instruction("popr", left_register))
     if isinstance(node.left, pycparser.c_ast.ID):
@@ -190,32 +216,36 @@ def parse_condition(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Tup
 
 
 def parse_if(node: pycparser.c_ast.If, program: HmmmProgram) -> None:
-    if isinstance(node.cond, pycparser.c_ast.BinaryOp):
-        assert node.cond.op in ["<", ">", "<=", ">=", "==", "!="], "Only <, >, <=, >=, ==, and != are supported"
-        jump_iftrue, cleanup_code = parse_condition(node.cond, program)
-        
-        jump_iffalse = generate_instruction("jumpn", MemoryAddress(-1))
-        program.add_instruction(jump_iffalse)
-        
-        program.add_instructions(cleanup_code)
-        jump_iftrue.arg2 = cleanup_code[-1].address
-        parse_compound(node.iftrue, program)
+    assert isinstance(node.cond, pycparser.c_ast.BinaryOp), "Only binary operations are supported in if statements"
+    assert node.cond.op in ["<", ">", "<=", ">=", "==", "!="], "Only <, >, <=, >=, ==, and != are supported"
 
-        jump_end = None
-        # If there is an else statement add it to the program
-        if node.iffalse != None:
-            jump_end = generate_instruction("jumpn", MemoryAddress(-1))
-            program.add_instruction(jump_end)
-            beginning_of_iffalse = generate_instruction("nop")
-            program.add_instruction(beginning_of_iffalse)
-            jump_iffalse.arg1 = beginning_of_iffalse.address
+    jump_iftrue, cleanup_code = parse_condition(node.cond, program)
+    
+    jump_iffalse = generate_instruction("jumpn", MemoryAddress(-1))
+    program.add_instruction(jump_iffalse)
+    
+    program.add_instructions(cleanup_code)
+    jump_iftrue.arg2 = cleanup_code[-1].address
+    parse_compound(node.iftrue, program)
+
+    jump_end = None
+    # If there is an else statement add it to the program
+    if node.iffalse != None:
+        jump_end = generate_instruction("jumpn", MemoryAddress(-1))
+        program.add_instruction(jump_end)
+        beginning_of_iffalse = generate_instruction("nop")
+        program.add_instruction(beginning_of_iffalse)
+        jump_iffalse.arg1 = beginning_of_iffalse.address
+        if isinstance(node.iffalse, pycparser.c_ast.Compound):
             parse_compound(node.iffalse, program)
-        else:
-            jump_end = jump_iffalse
+        elif isinstance(node.iffalse, pycparser.c_ast.If):
+            parse_if(node.iffalse, program)
+    else:
+        jump_end = jump_iffalse
 
-        end_of_if_block = generate_instruction("nop")
-        program.add_instruction(end_of_if_block)
-        jump_end.arg1 = end_of_if_block.address
+    end_of_if_block = generate_instruction("nop")
+    program.add_instruction(end_of_if_block)
+    jump_end.arg1 = end_of_if_block.address
 
 
 def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram) -> None:
@@ -238,6 +268,12 @@ def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram) -> None
                 elif isinstance(stmt.args.exprs[1], pycparser.c_ast.Constant):
                     program.add_instruction(generate_instruction("pushr", HmmmRegister.R13))
                     program.add_instruction(generate_instruction("setn", HmmmRegister.R13, int(stmt.args.exprs[1].value)))
+                    program.add_instruction(generate_instruction("write", HmmmRegister.R13))
+                    program.add_instruction(generate_instruction("popr", HmmmRegister.R13))
+                elif isinstance(stmt.args.exprs[1], pycparser.c_ast.UnaryOp):
+                    assert stmt.args.exprs[1].op == "-", "Only unary - is supported"
+                    program.add_instruction(generate_instruction("pushr", HmmmRegister.R13))
+                    parse_unary_op(stmt.args.exprs[1], program)
                     program.add_instruction(generate_instruction("write", HmmmRegister.R13))
                     program.add_instruction(generate_instruction("popr", HmmmRegister.R13))
             elif stmt.name.name == "scanf":
