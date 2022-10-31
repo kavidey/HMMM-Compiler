@@ -2,7 +2,7 @@ import argparse
 import pycparser
 from pycparser import parse_file
 from hmmm_code import HmmmInstruction, HmmmProgram, HmmmRegister, MemoryAddress, generate_instruction
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import re
 import copy
@@ -132,7 +132,7 @@ def parse_unary_op(node: pycparser.c_ast.UnaryOp, program: HmmmProgram) -> None:
     """
 
     if isinstance(node.expr, pycparser.c_ast.ID):
-        register = HmmmRegister(node.expr.name)
+        program.add_instruction(generate_instruction("copy", HmmmRegister.R13, HmmmRegister(node.expr.name)))
     elif isinstance(node.expr, pycparser.c_ast.Constant):
         program.add_instruction(generate_instruction("setn", HmmmRegister.R13, int(node.expr.value)))
     elif isinstance(node.expr, pycparser.c_ast.BinaryOp):
@@ -140,34 +140,64 @@ def parse_unary_op(node: pycparser.c_ast.UnaryOp, program: HmmmProgram) -> None:
     
     if node.op == "-":
         program.add_instruction(generate_instruction("sub", HmmmRegister.R13, HmmmRegister.R0, HmmmRegister.R13))
+    elif node.op == "p--":
+        program.add_instruction(generate_instruction("addn", HmmmRegister.R13, -1))
     # elif node.op == "!":
     #     program.add_instruction(generate_instruction("not", HmmmRegister.R13, HmmmRegister.R13))
 
-def parse_decl(node: pycparser.c_ast.Decl, program: HmmmProgram) -> None:
-    assert node.type.type.names[0] == "int", "Only ints are supported"
-    assert re.match("r\d", node.name), "Variables names must be in the form rX"
-    assert 1 <= int(node.name[1:]) <= 12, "Variables must be named r1, r2, ..., r12"
+def parse_decl_assign(node: Union[pycparser.c_ast.Decl, pycparser.c_ast.Assignment], program: HmmmProgram) -> None:
+    """Parses a declaration and adds the appropriate instructions to the given program
+    
+    Args:
+        node (pycparser.c_ast.UnaryOp) -- The node to parse
+        program (HmmmProgram) -- The program to add instructions to
+    """
+
+    if isinstance(node, pycparser.c_ast.Decl):
+        assert node.type.type.names[0] == "int", "Only ints are supported"
+        varname = node.name
+        val = node.init
+    elif isinstance(node, pycparser.c_ast.Assignment):
+        varname = node.lvalue.name
+        val = node.rvalue
+        assert node.op == "=", "Only = is supported"
+    else:
+        raise Exception("Invalid node type")
+    
+    assert re.match("r\d", varname), "Variables names must be in the form rX"
+    assert 1 <= int(varname[1:]) <= 12, "Variables must be named r1, r2, ..., r12"
 
     # TODO: Add Unary Op
-    if isinstance(node.init, pycparser.c_ast.Constant):
-        assert -128 <= int(node.init.value) <= 127, "Variable initial values must be between -128 and 127"
-        program.add_instruction(generate_instruction("setn", HmmmRegister(node.name), int(node.init.value)))
-    elif isinstance(node.init, pycparser.c_ast.BinaryOp):
-        parse_binary_op(node.init, program)
-        program.add_instruction(generate_instruction("copy", HmmmRegister(node.name), HmmmRegister.R13))
+    if isinstance(val, pycparser.c_ast.Constant):
+        assert -128 <= int(val.value) <= 127, "Variable initial values must be between -128 and 127"
+        program.add_instruction(generate_instruction("setn", HmmmRegister(varname), int(val.value)))
+    elif isinstance(val, pycparser.c_ast.BinaryOp):
+        program.add_instruction(generate_instruction("pushr", HmmmRegister.R13))
+        parse_binary_op(val, program)
+        program.add_instruction(generate_instruction("copy", HmmmRegister(varname), HmmmRegister.R13))
         program.add_instruction(generate_instruction("popr", HmmmRegister.R13))
-    elif isinstance(node.init, pycparser.c_ast.ID):
-        program.add_instruction(generate_instruction("copy", HmmmRegister(node.name), HmmmRegister(node.init.name)))
+    elif isinstance(val, pycparser.c_ast.ID):
+        program.add_instruction(generate_instruction("copy", HmmmRegister(varname), HmmmRegister(val.name)))
     # Test this later
     # elif isinstance(stmt.init, pycparser.c_ast.UnaryOp):
     #     assert stmt.init.op == "-", "Only unary negation is supported"
     #     assert isinstance(stmt.init.expr, pycparser.c_ast.Constant), "Unary negation must be applied to a constant"
     #     assert -128 <= int(stmt.init.expr.value) <= 127, "Unary negation must be applied to a constant between -128 and 127"
     #     program.add_instruction(generate_instruction("setn", HmmmRegister(stmt.name), -int(stmt.init.expr.value)))
-    elif node.init == None:
-        program.add_instruction(generate_instruction("setn", HmmmRegister(node.name), 0))
+    elif val == None:
+        program.add_instruction(generate_instruction("setn", HmmmRegister(varname), 0))
 
 def parse_condition(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Tuple[HmmmInstruction, List[HmmmInstruction]]:
+    """Parses a condition and returns the appropriate instructions to the given program
+    
+    Args:
+        node (pycparser.c_ast.UnaryOp) -- The node to parse
+        program (HmmmProgram) -- The program to add instructions to
+    
+    Returns:
+        jump_instruction (HmmmInstruction) -- The instruction to jump to the end of the condition. The jump address needs to be set later
+        cleanup_instructions (List[HmmmInstruction]) -- The instructions to clean up the stack. These instructions should be added after the condition is evaluated
+    """
     cleanup_code: List[HmmmInstruction] = []
 
     used_registers = find_used_registers(node)
@@ -214,8 +244,14 @@ def parse_condition(node: pycparser.c_ast.BinaryOp, program: HmmmProgram) -> Tup
 
     return jump_instruction, cleanup_code
 
-
 def parse_if(node: pycparser.c_ast.If, program: HmmmProgram) -> None:
+    """Parses an if statement and adds the appropriate instructions to the given program
+    
+    Args:
+        node (pycparser.c_ast.If) -- The node to parse
+        program (HmmmProgram) -- The program to add instructions to
+    """
+
     assert isinstance(node.cond, pycparser.c_ast.BinaryOp), "Only binary operations are supported in if statements"
     assert node.cond.op in ["<", ">", "<=", ">=", "==", "!="], "Only <, >, <=, >=, ==, and != are supported"
 
@@ -247,14 +283,55 @@ def parse_if(node: pycparser.c_ast.If, program: HmmmProgram) -> None:
     program.add_instruction(end_of_if_block)
     jump_end.arg1 = end_of_if_block.address
 
+def parse_while(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
+    """Parses a while loop and adds the appropriate instructions to the given program
+    
+    Args:
+        node (pycparser.c_ast.While) -- The node to parse
+        program (HmmmProgram) -- The program to add instructions to
+    """
+
+    assert isinstance(node.cond, pycparser.c_ast.BinaryOp), "Only binary operations are supported in while loops"
+    assert node.cond.op in ["<", ">", "<=", ">=", "==", "!="], "Only <, >, <=, >=, ==, and != are supported"
+
+    beginning_of_while_check = generate_instruction("nop")
+    program.add_instruction(beginning_of_while_check)
+
+    jump_if_not_done, cleanup_code = parse_condition(node.cond, program)
+
+    jump_to_end = generate_instruction("jumpn", MemoryAddress(-1))
+    program.add_instruction(jump_to_end)
+
+    beginning_of_while = generate_instruction("nop")
+    program.add_instruction(beginning_of_while)
+    jump_if_not_done.arg2 = beginning_of_while.address
+
+    program.add_instructions(cleanup_code)
+    parse_compound(node.stmt, program)
+
+    program.add_instruction(generate_instruction("jumpn", beginning_of_while_check.address))
+
+    end_of_while = generate_instruction("nop")
+    program.add_instruction(end_of_while)
+    jump_to_end.arg1 = end_of_while.address
+
 
 def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram) -> None:
+    """Parses a compound statement and adds the appropriate instructions to the given program
+    
+    Args:
+        node (pycparser.c_ast.Compound) -- The node to parse
+        program (HmmmProgram) -- The program to add instructions to
+    """
+
     for stmt in node.block_items:
         # If the user is declaring a new variable
-        if isinstance(stmt, pycparser.c_ast.Decl):
-            parse_decl(stmt, program)
+        if isinstance(stmt, pycparser.c_ast.Decl) or isinstance(stmt, pycparser.c_ast.Assignment):
+            parse_decl_assign(stmt, program)
         elif isinstance(stmt, pycparser.c_ast.If):
             parse_if(stmt, program)
+        elif isinstance(stmt, pycparser.c_ast.While):
+            parse_while(stmt, program)
         elif isinstance(stmt, pycparser.c_ast.FuncCall):
             assert stmt.name.name in ["printf", "scanf"], "Only printf and scanf are supported"
             if stmt.name.name == "printf":
@@ -281,6 +358,15 @@ def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram) -> None
                 assert len(stmt.args.exprs) == 2, "Only scanf(\"%d\", ...) is supported"
 
                 program.add_instruction(generate_instruction("read", HmmmRegister(stmt.args.exprs[1].expr.name)))
+        elif isinstance(stmt, pycparser.c_ast.UnaryOp):
+            program.add_instruction(generate_instruction("pushr", HmmmRegister.R13))
+            parse_unary_op(stmt, program)
+            program.add_instruction(generate_instruction("copy", HmmmRegister(stmt.expr.name), HmmmRegister.R13))
+            program.add_instruction(generate_instruction("popr", HmmmRegister.R13))
+        elif isinstance(stmt, pycparser.c_ast.Return):
+            pass
+        else:
+            raise NotImplementedError(f"Unsupported statement: {type(stmt)}")
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser("Compile a C file into Hmmm assembly")
