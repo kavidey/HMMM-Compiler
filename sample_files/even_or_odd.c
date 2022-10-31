@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+// Test simple if/else statements
 int main()
 {
     int r1;
