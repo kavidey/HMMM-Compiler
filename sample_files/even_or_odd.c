@@ -7,7 +7,7 @@ int main()
 
     if (r1 % 2 == 0)
     {
-        printf("%d\n", 1);
+        printf("%d\n", 0);
     } else {
         printf("%d\n", 1);
     }

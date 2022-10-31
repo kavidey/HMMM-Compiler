@@ -238,7 +238,7 @@ def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram) -> None
                 elif isinstance(stmt.args.exprs[1], pycparser.c_ast.Constant):
                     program.add_instruction(generate_instruction("pushr", HmmmRegister.R13))
                     program.add_instruction(generate_instruction("setn", HmmmRegister.R13, int(stmt.args.exprs[1].value)))
-                    program.add_instruction(generate_instruction("write", HmmmRegister.R0))
+                    program.add_instruction(generate_instruction("write", HmmmRegister.R13))
                     program.add_instruction(generate_instruction("popr", HmmmRegister.R13))
             elif stmt.name.name == "scanf":
                 assert stmt.args.exprs[0].value == '"%d"', "Only scanf(\"%d\", ...) is supported"
