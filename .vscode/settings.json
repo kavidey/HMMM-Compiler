@@ -2,20 +2,28 @@
     "cSpell.words": [
         "addn",
         "calln",
+        "iffalse",
+        "iftrue",
+        "Iutils",
         "jeqzn",
         "jgtzn",
         "jltzn",
         "jnezn",
         "jumpn",
         "jumpr",
+        "libc",
         "loadn",
         "loadr",
+        "lvalue",
         "popr",
         "pushr",
         "pycparser",
+        "rvalue",
+        "scanf",
         "setn",
         "storen",
-        "storer"
+        "storer",
+        "stringio"
     ],
     "python.analysis.typeCheckingMode": "basic"
 }

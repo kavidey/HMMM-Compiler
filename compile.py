@@ -1,11 +1,14 @@
 import argparse
-import pycparser
-from pycparser import parse_file
-from hmmm_code import HmmmInstruction, HmmmProgram, HmmmRegister, MemoryAddress, generate_instruction
+import copy
+import re
 from typing import List, Tuple, Union
 
-import re
-import copy
+import pycparser
+from pycparser import parse_file
+
+from hmmm_code import (HmmmInstruction, HmmmProgram, HmmmRegister,
+                       MemoryAddress, generate_instruction)
+
 
 def find_used_registers(node: pycparser.c_ast.Node) -> set[HmmmRegister]:
     """Gets the set of all registers used in the given node (and its children)
@@ -260,7 +263,7 @@ def parse_if(node: pycparser.c_ast.If, program: HmmmProgram, is_in_loop=False) -
     
     program.add_instructions(cleanup_code)
     jump_iftrue.arg2 = cleanup_code[-1].address
-    break_statements, continue_statments = parse_compound(node.iftrue, program, is_in_loop)
+    break_statements, continue_statements = parse_compound(node.iftrue, program, is_in_loop)
 
     jump_end = None
     # If there is an else statement add it to the program
@@ -281,7 +284,7 @@ def parse_if(node: pycparser.c_ast.If, program: HmmmProgram, is_in_loop=False) -
     program.add_instruction(end_of_if_block)
     jump_end.arg1 = end_of_if_block.address
 
-    return break_statements, continue_statments
+    return break_statements, continue_statements
 
 def parse_while(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
     """Parses a while loop and adds the appropriate instructions to the given program

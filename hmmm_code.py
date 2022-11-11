@@ -103,7 +103,7 @@ def generate_instruction(opcode: str, arg1: Optional[Union[HmmmRegister, int, Me
 
 class HmmmProgram:
     def __init__(self):
-        self.code: List[HmmmInstruction] = []
+        self.code: List[Union[HmmmInstruction, str]] = []
     
     def add_instruction(self, instruction: HmmmInstruction):
         self.code.append(instruction)
@@ -122,8 +122,9 @@ class HmmmProgram:
         self.code.insert(0, generate_instruction("setn", HmmmRegister.R15, len(self.code)+1))
     
     def assign_line_numbers(self):
-        for i, instruction in enumerate(filter(lambda instruction: type(instruction) == HmmmInstruction, self.code)):
-            instruction.address.address = i
+        for i, instruction in enumerate(self.code):
+            if isinstance(instruction, HmmmInstruction):
+                instruction.address.address = i
     
     def __getitem__(self, index: int):
         return self.code[index]
