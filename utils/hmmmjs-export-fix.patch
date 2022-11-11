@@ -1,0 +1,7 @@
+diff --git a/utils/HMMM.js b/utils/HMMM.js
+new file mode 160000
+index 0000000..31d5f44
+--- /dev/null
++++ b/utils/HMMM.js
+@@ -0,0 +1 @@
++Subproject commit 31d5f44384c28a3d5d3f5092bfb8ab817140453f-dirty

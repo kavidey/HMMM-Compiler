@@ -1,3 +1,6 @@
 [submodule "utils/pycparser"]
 	path = utils/pycparser
 	url = https://github.com/eliben/pycparser
+[submodule "utils/HMMM.js"]
+	path = utils/HMMM.js
+	url = https://github.com/bwiedermann/HMMM.js
