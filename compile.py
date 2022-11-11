@@ -7,17 +7,6 @@ from typing import List, Tuple, Union
 import re
 import copy
 
-def check_ast(ast):
-    # TODO: check ast
-    # This includes checking for:
-    # - all variables are ints
-    # - all variables are declared before use (and in scope)
-    # - all variables are named r1, r2, ..., rX
-    # - all printf calls have the correct format
-
-    # Some of these may make more sense to check during the code generation process which is why I'm not writing this function yet.
-    pass
-
 def find_used_registers(node: pycparser.c_ast.Node) -> set[HmmmRegister]:
     """Gets the set of all registers used in the given node (and its children)
 
@@ -464,26 +453,23 @@ def parse_compound(node: pycparser.c_ast.Compound, program: HmmmProgram, is_in_l
     
     return break_code, continue_code
 
-if __name__ == "__main__":
-    argparser = argparse.ArgumentParser("Compile a C file into Hmmm assembly")
-    argparser.add_argument(
-        "filename",
-        default="examples/c_files/basic.c",
-        nargs="?",
-        help="name of file to compile",
-    )
-    args = argparser.parse_args()
-
-    # Generate the AST
-    ast = parse_file(args.filename, use_cpp=True,
+def generate_ast(filepath: str) -> pycparser.c_ast.FileAST:
+    """Generates an AST from the given C code
     
+    Args:
+        code (str) -- The C code to parse
+
+    Returns:
+        ast (pycparser.c_ast.FileAST) -- The AST of the C code
+    """
+
+    ast = parse_file(filepath, use_cpp=True,
             cpp_path='clang',
             cpp_args=['-E', r'-Iutils/pycparser/utils/fake_libc_include'])
     # ast.show(showcoord=True)
+    return ast
 
-    # Make sure the AST contains valid code
-    check_ast(ast)
-
+def generate_program(ast: pycparser.c_ast.FileAST) -> HmmmProgram:
     program = HmmmProgram()
 
     for child in ast.ext:
@@ -495,4 +481,23 @@ if __name__ == "__main__":
     program.add_instruction(generate_instruction("halt"))
     program.add_stack_pointer_code()
     program.assign_line_numbers()
-    print(program)
+
+    return program
+
+if __name__ == "__main__":
+    argparser = argparse.ArgumentParser("Compile a C file into Hmmm assembly")
+    argparser.add_argument(
+        "filename",
+        default="examples/c_files/basic.c",
+        nargs="?",
+        help="name of file to compile",
+    )
+    args = argparser.parse_args()
+
+    # Generate the AST
+    ast = generate_ast(args.filename)
+
+    # Turn it into Hmmm Code
+    program = generate_program(ast)
+
+    print(program.to_str())

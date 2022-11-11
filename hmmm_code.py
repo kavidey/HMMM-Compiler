@@ -131,6 +131,12 @@ class HmmmProgram:
     def __str__(self):
         return "\n".join([str(instruction) for instruction in self.code])
 
+    def to_str(self):
+        return str(self)
+    
+    def to_array(self):
+        return [str(instruction) for instruction in self.code]
+
 if __name__ == "__main__":
     print("Simple Adder")
     simple_adder_program = HmmmProgram()
