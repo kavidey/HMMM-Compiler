@@ -6,8 +6,8 @@ class Node:
     def __init__(self, id: int, name, color=None):
         self.id = id
         self.name = name
-        self.adjacent: List[int] = []
-        self.move_list: List[int] = []
+        self.adjacent: List[Node] = []
+        self.move_list: List[Node] = []
         self.color = color
 
     def __repr__(self):
@@ -21,6 +21,17 @@ class Node:
     def count_adjacent(self):
         return len(self.adjacent)
 
+class CoalescedNode(Node):
+    def __init__(self, id: int, node1: Node, node2: Node, color=None):
+        self.node1 = node1
+        self.node2 = node2
+        self.adjacent: List[Node] = list(set(node1.adjacent + node2.adjacent))
+        self.move_list: List[Node] = list(set(node1.move_list + node2.move_list))
+
+    def __repr__(self):
+        if self.color:
+            return f"CoalescedNode(node1: {self.node1}, node2: {self.node2}, {self.color})"
+        return f"CoalescedNode(node1: {self.node1}, node2: {self.node2})"
 
 class Graph:
     def __init__(self) -> None:
@@ -73,26 +84,26 @@ class Graph:
         node2 = self.get_node_by_name(name2)
         self.adjacency_matrix[node1.id][node2.id] = 1
         self.adjacency_matrix[node2.id][node1.id] = 1
-        node1.adjacent.append(node2.id)
-        node2.adjacent.append(node1.id)
+        node1.adjacent.append(node2)
+        node2.adjacent.append(node1)
 
     def add_move_edge(self, name1, name2) -> None:
         node1 = self.get_node_by_name(name1)
         node2 = self.get_node_by_name(name2)
         self.adjacency_matrix[node1.id][node2.id] = -1
         self.adjacency_matrix[node2.id][node1.id] = -1
-        node1.move_list.append(node2.id)
-        node2.move_list.append(node1.id)
+        node1.move_list.append(node2)
+        node2.move_list.append(node1)
 
     def check_adjacency(self, name1, name2) -> bool:
         node1 = self.get_node_by_name(name1)
         node2 = self.get_node_by_name(name2)
         return self.adjacency_matrix[node1.id][node2.id] == 1
 
-    def get_adjacent(self, name) -> List[int]:
+    def get_adjacent(self, name) -> List[Node]:
         return self.get_node_by_name(name).get_adjacent()
 
-    def get_move_list(self, name) -> List[int]:
+    def get_move_list(self, name) -> List[Node]:
         return self.get_node_by_name(name).move_list
 
     def count_adjacent(self, name) -> int:
@@ -111,13 +122,13 @@ class InterferenceGraph(Graph):
     def remove_node(self, name) -> None:
         node = self.get_node_by_name(name)
         self.simplified_nodes[node.id] = node
-        for adjacent_id in node.get_adjacent():
-            self.adjacency_matrix[node.id][adjacent_id] = 0
-            self.adjacency_matrix[adjacent_id][node.id] = 0
-            if node.id in self.nodes[adjacent_id].adjacent:
-                self.nodes[adjacent_id].adjacent.remove(node.id)
-            if node.id in self.nodes[adjacent_id].move_list:
-                self.nodes[adjacent_id].move_list.remove(node.id)
+        for adjacent in node.get_adjacent():
+            self.adjacency_matrix[node.id][adjacent.id] = 0
+            self.adjacency_matrix[adjacent.id][node.id] = 0
+            if node in self.nodes[adjacent.id].adjacent:
+                self.nodes[adjacent.id].adjacent.remove(node)
+            if node in self.nodes[adjacent.id].move_list:
+                self.nodes[adjacent.id].move_list.remove(node)
         self.nodes.pop(node.id)
 
     def simplify(self) -> None:
@@ -160,8 +171,8 @@ class InterferenceGraph(Graph):
 
         for simplified_node_id in simplified_node_ids[1:]:
             adjacent_colors = [
-                self.simplified_nodes[adjacent_id].color
-                for adjacent_id in self.snapshot.nodes[
+                self.simplified_nodes[adjacent.id].color
+                for adjacent in self.snapshot.nodes[
                     simplified_node_id
                 ].get_adjacent()
             ]
