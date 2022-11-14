@@ -6,8 +6,8 @@ class Node:
     def __init__(self, id: int, name, color=None):
         self.id = id
         self.name = name
-        self.adjacent: List[Node] = []
-        self.move_list: List[Node] = []
+        self.adjacent: List[int] = []
+        self.move_list: List[int] = []
         self.color = color
 
     def __repr__(self):
@@ -61,7 +61,7 @@ class Graph:
 
         return self.nodes[id]
 
-    def get_node_by_name(self, name):
+    def get_node_by_name(self, name) -> Node:
         for node in self.nodes.values():
             if node.name == name:
                 return node
@@ -73,28 +73,29 @@ class Graph:
         node2 = self.get_node_by_name(name2)
         self.adjacency_matrix[node1.id][node2.id] = 1
         self.adjacency_matrix[node2.id][node1.id] = 1
-        node1.adjacent.append(node2)
-        node2.adjacent.append(node1)
+        node1.adjacent.append(node2.id)
+        node2.adjacent.append(node1.id)
 
     def add_move_edge(self, name1, name2) -> None:
         node1 = self.get_node_by_name(name1)
         node2 = self.get_node_by_name(name2)
         self.adjacency_matrix[node1.id][node2.id] = -1
-        node1.adjacent.append(node2)
-        node1.move_list.append(node2)
+        self.adjacency_matrix[node2.id][node1.id] = -1
+        node1.move_list.append(node2.id)
+        node2.move_list.append(node1.id)
 
-    def check_adjacency(self, name1, name2):
+    def check_adjacency(self, name1, name2) -> bool:
         node1 = self.get_node_by_name(name1)
         node2 = self.get_node_by_name(name2)
         return self.adjacency_matrix[node1.id][node2.id] == 1
 
-    def get_adjacent(self, name):
+    def get_adjacent(self, name) -> List[int]:
         return self.get_node_by_name(name).get_adjacent()
 
-    def get_move_list(self, name):
+    def get_move_list(self, name) -> List[int]:
         return self.get_node_by_name(name).move_list
 
-    def count_adjacent(self, name):
+    def count_adjacent(self, name) -> int:
         return self.get_node_by_name(name).count_adjacent()
 
 
@@ -102,24 +103,24 @@ class InterferenceGraph(Graph):
     def __init__(self, registers: List) -> None:
         super().__init__()
         self.registers = registers
-        self.removed_nodes: List[Node] = []
+        self.simplified_nodes: Dict[int, Node] = {}
 
-    def snapshot(self):
+    def take_snapshot(self):
         self.snapshot = copy.deepcopy(self)  # type: ignore
 
-    def remove_node(self, name):
+    def remove_node(self, name) -> None:
         node = self.get_node_by_name(name)
-        self.removed_nodes.append(node)
-        for adjacent in node.get_adjacent():
-            self.adjacency_matrix[node.id][adjacent.id] = 0
-            self.adjacency_matrix[adjacent.id][node.id] = 0
-            if node in adjacent.adjacent:
-                adjacent.adjacent.remove(node)
-            if node in adjacent.move_list:
-                adjacent.move_list.remove(node)
+        self.simplified_nodes[node.id] = node
+        for adjacent_id in node.get_adjacent():
+            self.adjacency_matrix[node.id][adjacent_id] = 0
+            self.adjacency_matrix[adjacent_id][node.id] = 0
+            if node.id in self.nodes[adjacent_id].adjacent:
+                self.nodes[adjacent_id].adjacent.remove(node.id)
+            if node.id in self.nodes[adjacent_id].move_list:
+                self.nodes[adjacent_id].move_list.remove(node.id)
         self.nodes.pop(node.id)
 
-    def simplify(self):
+    def simplify(self) -> None:
         loops_without_changes = 0
         max_loops_without_changes = len(self.nodes)
 
@@ -133,13 +134,13 @@ class InterferenceGraph(Graph):
             )
             > 0
         ):
-            removed_node = False
+            simplified_node = False
             for node in list(self.nodes.values()):
                 if node.count_adjacent() < len(self.registers):
-                    removed_node = True
+                    simplified_node = True
                     self.remove_node(node.name)
 
-            if removed_node:
+            if simplified_node:
                 loops_without_changes = 0
             else:
                 loops_without_changes += 1
@@ -147,33 +148,32 @@ class InterferenceGraph(Graph):
             if loops_without_changes > max_loops_without_changes:
                 break
 
-    def assign_registers(self):
-        self.snapshot()
+    def assign_registers(self) -> List[Node]:
+        self.take_snapshot()
         self.simplify()
 
-        if len(self.removed_nodes) != len(self.snapshot.nodes):
+        if len(self.simplified_nodes) != len(self.snapshot.nodes):
             raise Exception("Could not assign registers")
 
-        self.removed_nodes[0].color = self.registers.pop(0)
+        simplified_node_ids = list(self.simplified_nodes.keys())
+        self.simplified_nodes[simplified_node_ids[0]].color = self.registers[0]
 
-        ids = [id(node) for node in self.removed_nodes]
-
-        for i in range(1, len(self.removed_nodes)):
+        for simplified_node_id in simplified_node_ids[1:]:
             adjacent_colors = [
-                node.color for node in self.removed_nodes[i].get_adjacent()
+                self.simplified_nodes[adjacent_id].color
+                for adjacent_id in self.snapshot.nodes[
+                    simplified_node_id
+                ].get_adjacent()
             ]
-            print(list(map(id, self.removed_nodes[i].get_adjacent())))
-            # print(self.removed_nodes[i].get_adjacent(), adjacent_colors)
             possible_registers = [
                 register
                 for register in self.registers
                 if register not in adjacent_colors
             ]
-            # print(self.removed_nodes[i], possible_registers)
             selected_register = possible_registers[0]
-            self.removed_nodes[i].color = selected_register
+            self.simplified_nodes[simplified_node_id].color = selected_register
 
-        return self.removed_nodes
+        return list(self.simplified_nodes.values())
 
 
 if __name__ == "__main__":
