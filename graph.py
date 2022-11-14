@@ -15,23 +15,41 @@ class Node:
             return f"Node({self.name}, {self.color})"
         return f"Node({self.name})"
 
+    def get_move(self):
+        return self.move_list
+    
     def get_adjacent(self):
         return self.adjacent
 
     def count_adjacent(self):
         return len(self.adjacent)
 
+    def __eq__(self, other) -> bool:
+        return self.id == other.id
+    
+    def __lt__(self, other) -> bool:
+        return self.count_adjacent() < other.count_adjacent()
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
+
 class CoalescedNode(Node):
-    def __init__(self, id: int, node1: Node, node2: Node, color=None):
-        self.node1 = node1
-        self.node2 = node2
-        self.adjacent: List[Node] = list(set(node1.adjacent + node2.adjacent))
-        self.move_list: List[Node] = list(set(node1.move_list + node2.move_list))
+    def __init__(self, id: int, nodes: List[Node], color=None):
+        super().__init__(id, "-".join([str(node) for node in nodes]), color)
+        self.nodes = nodes
 
     def __repr__(self):
         if self.color:
-            return f"CoalescedNode(node1: {self.node1}, node2: {self.node2}, {self.color})"
-        return f"CoalescedNode(node1: {self.node1}, node2: {self.node2})"
+            return (
+                f"CoalescedNode({self.nodes}, {self.color})"
+            )
+        return f"CoalescedNode({self.nodes})"
+    
+    def add_node(self, node):
+        self.nodes.append(node)
+        self.name = "-".join([str(node) for node in self.nodes])
+
 
 class Graph:
     def __init__(self) -> None:
@@ -44,9 +62,9 @@ class Graph:
         adjacency_matrix_output = (
             "   " + " ".join([str(node) for node in self.nodes.values()]) + "\n"
         )
-        for i in range(len(self.nodes.keys())):
+        for i in self.nodes.keys():
             adjacency_matrix_output += str(self.nodes[i]) + ": "
-            for j in range(len(self.nodes.keys())):
+            for j in self.nodes.keys():
                 if self.adjacency_matrix[i][j] == 1:
                     adjacency_matrix_output += "X "
                     connections_output += (
@@ -64,13 +82,15 @@ class Graph:
         return connections_output + "\n" + adjacency_matrix_output
 
     def add_node(self, name, color=None) -> Node:
-        id = len(self.nodes)
-        self.nodes[id] = Node(len(self.nodes), name, color)
+        node = Node(len(self.nodes), name, color)
+        self.add_existing_node(node)
+        return node
+    
+    def add_existing_node(self, node) -> None:
+        self.nodes[node.id] = node
         for row in self.adjacency_matrix:
             row.append(0)
         self.adjacency_matrix.append([0] * len(self.nodes))
-
-        return self.nodes[id]
 
     def get_node_by_name(self, name) -> Node:
         for node in self.nodes.values():
@@ -82,16 +102,26 @@ class Graph:
     def add_interference_edge(self, name1, name2) -> None:
         node1 = self.get_node_by_name(name1)
         node2 = self.get_node_by_name(name2)
-        self.adjacency_matrix[node1.id][node2.id] = 1
-        self.adjacency_matrix[node2.id][node1.id] = 1
+
+        node1_adjacency_matrix_index = self.get_adjacency_matrix_index(name1)
+        node2_adjacency_matrix_index = self.get_adjacency_matrix_index(name2)
+
+        self.adjacency_matrix[node1_adjacency_matrix_index][node2_adjacency_matrix_index] = 1
+        self.adjacency_matrix[node2_adjacency_matrix_index][node1_adjacency_matrix_index] = 1
+
         node1.adjacent.append(node2)
         node2.adjacent.append(node1)
 
     def add_move_edge(self, name1, name2) -> None:
         node1 = self.get_node_by_name(name1)
         node2 = self.get_node_by_name(name2)
-        self.adjacency_matrix[node1.id][node2.id] = -1
-        self.adjacency_matrix[node2.id][node1.id] = -1
+
+        node1_adjacency_matrix_index = self.get_adjacency_matrix_index(name1)
+        node2_adjacency_matrix_index = self.get_adjacency_matrix_index(name2)
+
+        self.adjacency_matrix[node1_adjacency_matrix_index][node2_adjacency_matrix_index] = -1
+        self.adjacency_matrix[node2_adjacency_matrix_index][node1_adjacency_matrix_index] = -1
+
         node1.move_list.append(node2)
         node2.move_list.append(node1)
 
@@ -104,11 +134,13 @@ class Graph:
         return self.get_node_by_name(name).get_adjacent()
 
     def get_move_list(self, name) -> List[Node]:
-        return self.get_node_by_name(name).move_list
+        return self.get_node_by_name(name).get_move()
 
     def count_adjacent(self, name) -> int:
         return self.get_node_by_name(name).count_adjacent()
-
+    
+    def get_adjacency_matrix_index(self, name) -> int:
+        return list(self.nodes.keys()).index(self.get_node_by_name(name).id)
 
 class InterferenceGraph(Graph):
     def __init__(self, registers: List) -> None:
@@ -119,49 +151,90 @@ class InterferenceGraph(Graph):
     def take_snapshot(self):
         self.snapshot = copy.deepcopy(self)  # type: ignore
 
-    def remove_node(self, name) -> None:
+    def remove_node(self, name) -> Node:
         node = self.get_node_by_name(name)
-        self.simplified_nodes[node.id] = node
+
+        for i in range(len(self.adjacency_matrix)):
+            del self.adjacency_matrix[i][self.get_adjacency_matrix_index(name)]
+        del self.adjacency_matrix[self.get_adjacency_matrix_index(name)]
+
         for adjacent in node.get_adjacent():
-            self.adjacency_matrix[node.id][adjacent.id] = 0
-            self.adjacency_matrix[adjacent.id][node.id] = 0
-            if node in self.nodes[adjacent.id].adjacent:
-                self.nodes[adjacent.id].adjacent.remove(node)
-            if node in self.nodes[adjacent.id].move_list:
-                self.nodes[adjacent.id].move_list.remove(node)
+            adjacent.adjacent.remove(node)
+        node.adjacent = []
+        for move in node.get_move():
+            move.move_list.remove(node)
+        node.move_list = []
+
         self.nodes.pop(node.id)
+        return node
 
-    def simplify(self) -> None:
-        loops_without_changes = 0
-        max_loops_without_changes = len(self.nodes)
-
-        while (
-            len(
-                [
-                    node
-                    for node in self.nodes.values()
-                    if node.count_adjacent() < len(self.registers)
-                ]
-            )
-            > 0
-        ):
-            simplified_node = False
-            for node in list(self.nodes.values()):
+    def simplify(self, num_to_simplify=1) -> List[Node]:
+        simplified_nodes = []
+        for _ in range(num_to_simplify):
+            for node in sorted(interference_graph.nodes.values(), reverse=True):
                 if node.count_adjacent() < len(self.registers):
-                    simplified_node = True
                     self.remove_node(node.name)
+                    self.simplified_nodes[node.id] = node
+                    simplified_nodes.append(node)
+                    break
+        return simplified_nodes
 
-            if simplified_node:
-                loops_without_changes = 0
-            else:
-                loops_without_changes += 1
+    def coalesce(self, num_to_coalesce=1) -> List[CoalescedNode]:
+        coalesced_nodes = []
+        for _ in range(num_to_coalesce):
+            for node in sorted(interference_graph.nodes.values(), reverse=True):
+                for move in node.get_move():
+                    print(node, move, len(set(move.get_adjacent() + node.get_adjacent())))
+                    if len(set(move.get_adjacent() + node.get_adjacent())) < len(
+                        self.registers
+                    ):
+                        print(f"Coalescing {node} and {move}")
+                        node_id = len(self.nodes) + len(self.simplified_nodes)
+                        coalesced_node = CoalescedNode(node_id, [node, move])
+                        self.add_existing_node(coalesced_node)
+                        print(f"New node: {coalesced_node}")
 
-            if loops_without_changes > max_loops_without_changes:
+                        combined_adjacent = list(
+                            set(node.get_adjacent() + move.get_adjacent())
+                        )
+                        combined_move = list(set(node.move_list + move.move_list))
+                        
+                        print(combined_adjacent, combined_move)
+
+                        combined_move.remove(node)
+                        combined_move.remove(move)
+
+                        self.remove_node(move.name)
+                        self.remove_node(node.name)
+
+                        for combined_adjacent_node in combined_adjacent:
+                            print(coalesced_node.name, combined_adjacent_node.name)
+                            print(len(self.adjacency_matrix), [len(self.adjacency_matrix[i]) for i in range(len(self.adjacency_matrix))])
+                            self.add_interference_edge(
+                                coalesced_node.name, combined_adjacent_node.name
+                            )
+                        for combined_move_node in combined_move:
+                            self.add_move_edge(
+                                coalesced_node.name, combined_move_node.name
+                            )
+                        coalesced_nodes.append(coalesced_node)
+                        break
+                # Breakout of multiple loops at once: https://stackoverflow.com/a/3150107/6454085
+                else:
+                    # Continue if the inner loop wasn't broken.
+                    continue
+                # Inner loop was broken, break the outer.
                 break
+        return coalesced_nodes
 
     def assign_registers(self) -> List[Node]:
         self.take_snapshot()
-        self.simplify()
+        max_attempts = len(self.nodes)
+        for _ in range(max_attempts):
+            self.simplify()
+            # self.coalesce()
+            if len(self.nodes) == 0:
+                break
 
         if len(self.simplified_nodes) != len(self.snapshot.nodes):
             raise Exception("Could not assign registers")
@@ -172,9 +245,7 @@ class InterferenceGraph(Graph):
         for simplified_node_id in simplified_node_ids[1:]:
             adjacent_colors = [
                 self.simplified_nodes[adjacent.id].color
-                for adjacent in self.snapshot.nodes[
-                    simplified_node_id
-                ].get_adjacent()
+                for adjacent in self.snapshot.nodes[simplified_node_id].get_adjacent()
             ]
             possible_registers = [
                 register
@@ -183,6 +254,18 @@ class InterferenceGraph(Graph):
             ]
             selected_register = possible_registers[0]
             self.simplified_nodes[simplified_node_id].color = selected_register
+        
+        indices_to_delete = []
+        children_to_add: Dict[int, Node] = {}
+        for i in range(len(self.simplified_nodes)):
+            node = self.simplified_nodes[i]
+            if isinstance(node, CoalescedNode):
+                indices_to_delete.append(i)
+                for child_node in node.nodes:
+                    child_node.color = node.color
+                    children_to_add[child_node.id] = child_node
+        
+        self.simplified_nodes = {node.id: node for node in self.simplified_nodes.values() if node.id not in indices_to_delete} | children_to_add
 
         return list(self.simplified_nodes.values())
 
