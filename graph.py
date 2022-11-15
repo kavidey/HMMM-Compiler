@@ -24,6 +24,14 @@ class Node:
             List[Node]: The move list of the node
         """
         return self.move_list
+    
+    def count_move(self):
+        """Gets the number of moves
+        
+        Returns:
+            int: The number of moves
+        """
+        return len(self.get_move())
 
     def get_adjacent(self):
         """Gets the adjacency list of the node
@@ -303,7 +311,7 @@ class InterferenceGraph(Graph):
         return node
 
     def simplify(self, num_to_simplify=1) -> List[Node]:
-        """Simplifies the graph by removing nodes with degree less than self.registers (removes the node with the highest degree first)
+        """Simplifies the graph by removing non-move-related and non-precolored nodes with degree less than self.registers (removes the node with the highest degree first)
         
         Arguments:
             num_to_simplify {int} -- The number of nodes to simplify (default: {1})
@@ -314,7 +322,7 @@ class InterferenceGraph(Graph):
         simplified_nodes = []
         for _ in range(num_to_simplify):
             for node in sorted(interference_graph.nodes.values(), reverse=True):
-                if node.count_adjacent() < len(self.registers):
+                if node.count_adjacent() < len(self.registers) and node.count_move() == 0 and node.color == None:
                     self.remove_node(node.name)
                     self.simplified_nodes[node.id] = node
                     simplified_nodes.append(node)
@@ -394,6 +402,29 @@ class InterferenceGraph(Graph):
                 # Inner loop was broken, break the outer.
                 break
         return coalesced_nodes
+    
+    def freeze(self, name):
+        """Freezes a node in the graph
+        
+        Arguments:
+            name {any} -- The name of the node to freeze
+        """
+        node = self.get_node_by_name(name)
+        node_adjacency_matrix_index = self.get_adjacency_matrix_index(name)
+        for move in node.get_move():
+            move_adjacency_matrix_index = self.get_adjacency_matrix_index(move.name)
+            self.adjacency_matrix[move_adjacency_matrix_index][
+                node_adjacency_matrix_index
+            ] = 0
+            self.adjacency_matrix[node_adjacency_matrix_index][
+                move_adjacency_matrix_index
+            ] = 0
+
+            move.move_list.remove(node)
+            move.move_list_removed.append(node)
+        
+        node.move_list_removed = node.move_list
+        node.move_list = []
 
     def assign_registers(self) -> List[Node]:
         """Assigns registers to the nodes in the graph
@@ -402,32 +433,43 @@ class InterferenceGraph(Graph):
             List[Node] -- The list of nodes and their assigned registers
         """
         self.take_snapshot()
-        max_attempts = len(self.nodes) * 2
 
-        for _ in range(max_attempts):
+        can_simplify_and_coalesce = True
+
+        while can_simplify_and_coalesce:
             self.simplify()
             self.coalesce(len(self.nodes))
 
-            if len(self.nodes) == 0:
-                break
+            # We should move on from simplification and coalescing if either:
+            # the only nodes remaning are move-related or of significant degree
+            can_simplify_and_coalesce = False
+            for node in self.nodes.values():
+                if node.count_adjacent() < len(self.registers) or node.count_move() == 0:
+                    can_simplify_and_coalesce = True
+                    break
+            
+            if not can_simplify_and_coalesce:
+                move_related_nodes = [node for node in self.nodes.values() if node.count_move() > 0 and node.count_adjacent() < len(self.registers)]
+                move_related_nodes = sorted(move_related_nodes, key=lambda node: node.count_adjacent(), reverse=True)
+                if len(move_related_nodes) > 0:
+                    self.freeze(move_related_nodes[0])
+
 
         if len(self.nodes) > 0:
-            raise Exception("Could not assign registers")
+            raise Exception("Could not assign registers. Spilling is not implemented yet.")
 
-        simplified_node_ids = list(self.simplified_nodes.keys())
-        self.simplified_nodes[simplified_node_ids[0]].color = self.registers[0]
+        for simplified_node_id in list(self.simplified_nodes.keys()):
+            if self.simplified_nodes[simplified_node_id].color == None:
+                adjacent_nodes = self.simplified_nodes[simplified_node_id].adjacent_removed
+                adjacent_colors = [node.color for node in adjacent_nodes]
 
-        for simplified_node_id in simplified_node_ids[1:]:
-            adjacent_nodes = self.simplified_nodes[simplified_node_id].adjacent_removed
-            adjacent_colors = [node.color for node in adjacent_nodes]
-
-            possible_registers = [
-                register
-                for register in self.registers
-                if register not in adjacent_colors
-            ]
-            selected_register = possible_registers[0]
-            self.simplified_nodes[simplified_node_id].color = selected_register
+                possible_registers = [
+                    register
+                    for register in self.registers
+                    if register not in adjacent_colors
+                ]
+                selected_register = possible_registers[0]
+                self.simplified_nodes[simplified_node_id].color = selected_register
 
         nodes_to_delete = []
         children_to_add: Dict[int, Node] = {}
