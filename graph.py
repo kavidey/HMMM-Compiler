@@ -171,7 +171,6 @@ class InterferenceGraph(Graph):
         self.snapshot = copy.deepcopy(self)  # type: ignore
 
     def remove_node(self, name) -> Node:
-        print(f"Removing node {name}")
         node = self.get_node_by_name(name)
 
         for i in range(len(self.adjacency_matrix)):
@@ -227,12 +226,9 @@ class InterferenceGraph(Graph):
             for node in sorted(interference_graph.nodes.values(), reverse=True):
                 for move in node.get_move():
                     if self.can_coalesce(node, move, method="george"):
-                        print(f"\nCoalescing {node.name} and {move.name}")
                         coalesced_node = CoalescedNode(self.running_node_id, [node, move])
                         self.running_node_id += 1
 
-                        print("before add existing")
-                        print([node.name for node in self.nodes.values()])
                         self.add_existing_node(coalesced_node)
 
                         combined_adjacent = list(
@@ -241,23 +237,10 @@ class InterferenceGraph(Graph):
                         combined_move = list(set(node.get_move() + move.get_move()))
                         combined_move = [node for node in combined_move if node not in [move, node]]
 
-                        print("before remove")
-                        print([node.name for node in self.nodes.values()])
-
                         self.remove_node(move.name)
-                        print("during remove")
-                        print([node.name for node in self.nodes.values()])
                         self.remove_node(node.name)
-                        
-                        print("after remove")
-                        print([node.name for node in self.nodes.values()])
-
-                        # print('combined adjacent:', combined_adjacent)
-                        # print('combined move:', combined_move)
 
                         for combined_adjacent_node in combined_adjacent:
-                            # print('adding edge', coalesced_node.name, combined_adjacent_node.name)
-                            # print(self.nodes)
                             self.add_interference_edge(
                                 coalesced_node.name, combined_adjacent_node.name
                             )
@@ -279,26 +262,15 @@ class InterferenceGraph(Graph):
         self.take_snapshot()
         max_attempts = len(self.nodes) * 2
 
-        print(self)
-
         for _ in range(max_attempts):
-            simplified_nodes = self.simplify()
-            if simplified_nodes:
-                print("Simplified nodes:", simplified_nodes)
-
-            print(self)
-
-            coalesced_nodes = self.coalesce(len(self.nodes))
-            if coalesced_nodes:
-                print("Coalesced nodes:", coalesced_nodes)
+            self.simplify()
+            self.coalesce(len(self.nodes))
 
             if len(self.nodes) == 0:
                 break
 
         if len(self.nodes) > 0:
             raise Exception("Could not assign registers")
-
-        print(self.simplified_nodes)
 
         simplified_node_ids = list(self.simplified_nodes.keys())
         self.simplified_nodes[simplified_node_ids[0]].color = self.registers[0]
@@ -307,15 +279,6 @@ class InterferenceGraph(Graph):
             adjacent_nodes = self.simplified_nodes[simplified_node_id].adjacent_removed
             adjacent_colors = [node.color for node in adjacent_nodes]
 
-            print(
-                self.simplified_nodes[simplified_node_id],
-                adjacent_nodes,
-                adjacent_colors,
-            )
-            # adjacent_colors = [
-            #     self.simplified_nodes[adjacent.id].color
-            #     for adjacent in self.snapshot.nodes[simplified_node_id].get_adjacent()
-            # ]
             possible_registers = [
                 register
                 for register in self.registers
@@ -324,17 +287,16 @@ class InterferenceGraph(Graph):
             selected_register = possible_registers[0]
             self.simplified_nodes[simplified_node_id].color = selected_register
 
-        # indices_to_delete = []
-        # children_to_add: Dict[int, Node] = {}
-        # for i in range(len(self.simplified_nodes)):
-        #     node = self.simplified_nodes[i]
-        #     if isinstance(node, CoalescedNode):
-        #         indices_to_delete.append(i)
-        #         for child_node in node.nodes:
-        #             child_node.color = node.color
-        #             children_to_add[child_node.id] = child_node
+        nodes_to_delete = []
+        children_to_add: Dict[int, Node] = {}
+        for node in self.simplified_nodes.values():
+            if isinstance(node, CoalescedNode):
+                nodes_to_delete.append(node)
+                for child_node in node.nodes:
+                    child_node.color = node.color
+                    children_to_add[child_node.id] = child_node
 
-        # self.simplified_nodes = {node.id: node for node in self.simplified_nodes.values() if node.id not in indices_to_delete} | children_to_add
+        self.simplified_nodes = {node.id: node for node in self.simplified_nodes.values() if node not in nodes_to_delete} | children_to_add
 
         return list(self.simplified_nodes.values())
 
