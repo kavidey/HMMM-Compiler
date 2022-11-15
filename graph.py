@@ -18,12 +18,27 @@ class Node:
         return f"Node({self.name})"
 
     def get_move(self):
+        """Gets the move list of the node
+        
+        Returns:
+            List[Node]: The move list of the node
+        """
         return self.move_list
 
     def get_adjacent(self):
+        """Gets the adjacency list of the node
+        
+        Returns:
+            List[Node]: The adjacency list of the node
+        """
         return self.adjacent
 
     def count_adjacent(self):
+        """Gets the number of adjacent nodes
+        
+        Returns:
+            int: The number of adjacent nodes
+        """
         return len(self.get_adjacent())
 
     def __eq__(self, other) -> bool:
@@ -47,6 +62,11 @@ class CoalescedNode(Node):
         return f"CoalescedNode({self.nodes})"
 
     def add_node(self, node):
+        """Adds a node to the coalesced node
+        
+        Args:
+            node (Node): The node to add
+        """
         self.nodes.append(node)
         self.name = "-".join([str(node.name) for node in self.nodes])
 
@@ -85,18 +105,38 @@ class Graph:
         return adjacency_matrix_output
 
     def add_node(self, name, color=None, id=None) -> Node:
+        """Creates and adds a node to the graph
+        
+        Arguments:
+            name {str} -- The name of the node
+            color (optional) {any} -- The color of the node
+            id (optional) {int} -- The id of the node
+        
+        Returns:
+            Node -- The created node
+        """
         node_id = id if id else len(self.nodes)
         node = Node(node_id, name, color)
         self.add_existing_node(node)
         return node
 
     def add_existing_node(self, node) -> None:
+        """Adds an existing node to the graph
+        
+        Arguments:
+            node {Node} -- The node to add
+        """
         self.nodes[node.id] = node
         for row in self.adjacency_matrix:
             row.append(0)
         self.adjacency_matrix.append([0] * len(self.nodes))
 
     def get_node_by_name(self, name) -> Node:
+        """Finds the node with the given name
+        
+        Arguments:
+            name {any} -- The name of the node
+        """
         for node in self.nodes.values():
             if node.name == name:
                 return node
@@ -104,6 +144,12 @@ class Graph:
         raise Exception(f"Node {name} not found")
 
     def add_interference_edge(self, name1, name2) -> None:
+        """Adds an interference edge between two nodes
+        
+        Arguments:
+            name1 {any} -- The name of the first node
+            name2 {any} -- The name of the second node
+        """
         node1 = self.get_node_by_name(name1)
         node2 = self.get_node_by_name(name2)
 
@@ -121,6 +167,12 @@ class Graph:
         node2.adjacent.append(node1)
 
     def add_move_edge(self, name1, name2) -> None:
+        """Adds a move edge between two nodes
+        
+        Arguments:
+            name1 {any} -- The name of the first node
+            name2 {any} -- The name of the second node
+        """
         node1 = self.get_node_by_name(name1)
         node2 = self.get_node_by_name(name2)
 
@@ -138,20 +190,61 @@ class Graph:
         node2.move_list.append(node1)
 
     def check_adjacency(self, name1, name2) -> bool:
+        """Checks if two nodes are adjacent
+        
+        Arguments:
+            name1 {any} -- The name of the first node
+            name2 {any} -- The name of the second node
+
+        Returns:
+            bool -- True if the nodes are adjacent, False otherwise
+        """
         node1 = self.get_node_by_name(name1)
         node2 = self.get_node_by_name(name2)
         return self.adjacency_matrix[node1.id][node2.id] == 1
 
     def get_adjacent(self, name) -> List[Node]:
+        """Gets a list of nodes adjacent to the node with the given name
+        
+        Arguments:
+            name {any} -- The name of the node
+        
+        Returns:
+            List[Node] -- The list of adjacent nodes
+        """
         return self.get_node_by_name(name).get_adjacent()
 
     def get_move_list(self, name) -> List[Node]:
+        """Gets a list of nodes in the move list of the node with the given name
+        
+        Arguments:
+            name {any} -- The name of the node
+        
+        Returns:
+            List[Node] -- The list of nodes in the move list
+        """
         return self.get_node_by_name(name).get_move()
 
     def count_adjacent(self, name) -> int:
+        """Gets the number of nodes adjacent to the node with the given name
+        
+        Arguments:
+            name {any} -- The name of the node
+
+        Returns:
+            int -- The number of adjacent nodes
+        """
         return self.get_node_by_name(name).count_adjacent()
 
     def get_adjacency_matrix_index(self, name) -> int:
+        """Gets the index of the node with the given name in the adjacency matrix
+        
+        Arguments:
+            name {any} -- The name of the node
+        
+        Returns:
+            int -- The index of the node in the adjacency matrix
+        """
         return list(self.nodes.keys()).index(self.get_node_by_name(name).id)
 
 
@@ -162,15 +255,33 @@ class InterferenceGraph(Graph):
         self.simplified_nodes: Dict[int, Node] = {}
         self.running_node_id = 0
 
-    def add_node(self, name, color=None) -> Node:
-        node = super().add_node(name, color, self.running_node_id)
+    def add_node(self, name, register=None) -> Node:
+        """Creates and adds a node to the graph
+        
+        Arguments:
+            name {str} -- The name of the node
+            register (optional) {any} -- The register the node is assigned to
+        
+        Returns:
+            Node -- The created node
+        """
+        node = super().add_node(name, register, self.running_node_id)
         self.running_node_id += 1
         return node
 
     def take_snapshot(self):
+        """Takes a snapshot of the current state of the graph"""
         self.snapshot = copy.deepcopy(self)  # type: ignore
 
     def remove_node(self, name) -> Node:
+        """Removes a node from the graph
+        
+        Arguments:
+            name {any} -- The name of the node to remove
+
+        Returns:
+            Node -- The removed node
+        """
         node = self.get_node_by_name(name)
 
         for i in range(len(self.adjacency_matrix)):
@@ -192,6 +303,14 @@ class InterferenceGraph(Graph):
         return node
 
     def simplify(self, num_to_simplify=1) -> List[Node]:
+        """Simplifies the graph by removing nodes with degree less than self.registers (removes the node with the highest degree first)
+        
+        Arguments:
+            num_to_simplify {int} -- The number of nodes to simplify (default: {1})
+
+        Returns:
+            List[Node] -- The list of nodes that were removed
+        """
         simplified_nodes = []
         for _ in range(num_to_simplify):
             for node in sorted(interference_graph.nodes.values(), reverse=True):
@@ -203,6 +322,16 @@ class InterferenceGraph(Graph):
         return simplified_nodes
 
     def can_coalesce(self, node1: Node, node2: Node, method="briggs") -> bool:
+        """Checks if two nodes can be coalesced
+
+        Arguments:
+            node1 {Node} -- The first node
+            node2 {Node} -- The second node
+            method {"briggs" | "george" } -- The method to use to check if the nodes can be coalesced (default: {"briggs"})
+
+        Returns:
+            bool -- True if the nodes can be coalesced, False otherwise
+        """
         if method == "briggs":
             return len(set(node1.get_adjacent() + node2.get_adjacent())) < len(
                 self.registers
@@ -221,6 +350,14 @@ class InterferenceGraph(Graph):
             raise Exception(f"Invalid method: {method}")
 
     def coalesce(self, num_to_coalesce=1) -> List[CoalescedNode]:
+        """Coalesces nodes in the graph (removes the node with the highest degree first)
+
+        Arguments:
+            num_to_coalesce {int} -- The number of nodes to coalesce (default: {1})
+
+        Returns:
+            List[CoalescedNode] -- The list of nodes that were coalesced
+        """
         coalesced_nodes = []
         for _ in range(num_to_coalesce):
             for node in sorted(interference_graph.nodes.values(), reverse=True):
@@ -259,6 +396,11 @@ class InterferenceGraph(Graph):
         return coalesced_nodes
 
     def assign_registers(self) -> List[Node]:
+        """Assigns registers to the nodes in the graph
+        
+        Returns:
+            List[Node] -- The list of nodes and their assigned registers
+        """
         self.take_snapshot()
         max_attempts = len(self.nodes) * 2
 
