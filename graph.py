@@ -85,32 +85,18 @@ class Graph:
         self.adjacency_matrix = []
 
     def __repr__(self):
-        connections_output = ""
+        edges = []
 
-        adjacency_matrix_output = (
-            "   " + " ".join([str(node.name) for node in self.nodes.values()]) + "\n"
-        )
-        for i in self.nodes.keys():
-            adjacency_matrix_output += str(self.nodes[i].name) + ": "
-            i_corrected = self.get_adjacency_matrix_index(self.nodes[i].name)
-            for j in self.nodes.keys():
-                j_corrected = self.get_adjacency_matrix_index(self.nodes[j].name)
-                if self.adjacency_matrix[i_corrected][j_corrected] == 1:
-                    adjacency_matrix_output += "X "
-                    connections_output += (
-                        str(self.nodes[i].name) + " - " + str(self.nodes[j].name) + "\n"
-                    )
-                elif self.adjacency_matrix[i_corrected][j_corrected] == -1:
-                    adjacency_matrix_output += "- "
-                    connections_output += (
-                        str(self.nodes[i].name) + " = " + str(self.nodes[j].name) + "\n"
-                    )
-                else:
-                    adjacency_matrix_output += ". "
-            adjacency_matrix_output += "\n"
+        for node in self.nodes.values():
+            for adjacent_node in node.get_adjacent():
+                if not f'{adjacent_node.name} -- {node.name};' in edges:
+                    edges.append(f'{node.name} -- {adjacent_node.name};')
+            for move_node in node.get_move():
+                if not f'{move_node.name} -- {node.name} [style=dotted];' in edges:
+                    edges.append(f'{node.name} -- {move_node.name} [style=dotted];')
 
-        # return connections_output + "\n" + adjacency_matrix_output
-        return adjacency_matrix_output
+        return "graph {{\n{}\n}}".format("\n".join(edges))
+
 
     def add_node(self, name, color=None, id=None) -> Node:
         """Creates and adds a node to the graph
@@ -527,5 +513,7 @@ if __name__ == "__main__":
     interference_graph.add_interference_edge("h", "j")
 
     interference_graph.add_interference_edge("j", "k")
+
+    print(interference_graph)
 
     print(interference_graph.assign_registers())
