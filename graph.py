@@ -124,29 +124,21 @@ class DirectedGraph:
         node_order = self.dfs(self.start_node.name)
         node_order.reverse()
 
-        print(node_order)
-
         changed = True
         while changed:
+            changed = False
             for node in node_order:
-                live_in = node.uses + subtract_lists_(node.live_in, node.defines)
-                #live_out = [s.live_in for s in node.outgoing_edges]
-                live_out = functools.reduce(lambda a, b: a + b.live_in, node.outgoing_edges, [])
+                old_live_out = copy.copy(node.live_out)
+                old_live_in = copy.copy(node.live_in)
 
-                print(live_out, live_in)
+                node.live_out = list(set(functools.reduce(lambda a, b: a + b.live_in, node.outgoing_edges, [])))
+                node.live_in = list(set(node.uses + subtract_lists_(node.live_out, node.defines)))
 
-                if lists_equal_(live_in, node.live_in) and lists_equal_(live_out, node.live_out):
-                    changed = False
-
-                node.live_in = live_in
-                node.live_out = live_out
-            print()
+                if not (lists_equal_(old_live_in, node.live_in) and lists_equal_(old_live_out, node.live_out)):
+                    changed = True
         
         for edge in self.edges:
             edge.live_temporaries = list(set(edge.src.live_out) | set(edge.dst.live_in))
-
-        for node in self.nodes.values():
-            print(node.name, node.live_out, node.live_in)
 
     def __repr__(self):
         edges = []
@@ -664,7 +656,7 @@ if __name__ == "__main__":
     ### Liveness Analysis ###
     # TODOs: 1) get graph visualization working - DONE
     #        2) get depth first search for node ordering working - DONE
-    #        3) implement dataflow equations for liveness analysis -- IN PROGRESS
+    #        3) implement dataflow equations for liveness analysis -- DONE
     #        4) add function to generate interference graph from liveness analysis
 
     control_flow_graph = DirectedGraph()
@@ -688,6 +680,7 @@ if __name__ == "__main__":
 
     control_flow_graph.calculate_liveness()
     print(control_flow_graph)
+    print()
 
     ### Interference Graph Testing ###
 
