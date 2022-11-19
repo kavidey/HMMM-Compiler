@@ -1,25 +1,41 @@
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 import copy
 import functools
+import itertools
+from hmmm_code import TemporaryRegister, HmmmInstruction, HmmmRegister
+
 
 def subtract_lists_(l1: List, l2: List):
     return [x for x in l1 if x not in l2]
 
+
 def lists_equal_(l1: List, l2: List):
     """
-    
+
     NOTE: this only works if the lists elements are also unique
 
     """
     return set(l1) == set(l2)
 
+
 class DirectedNode:
-    def __init__(self, id: int, name, uses: List, defines: List):
+    def __init__(
+        self,
+        id: int,
+        name: HmmmInstruction,
+        uses: List[TemporaryRegister],
+        defines: List[TemporaryRegister],
+        is_move: bool = False,
+    ):
         self.id = id
         self.name = name
+        self.is_move = is_move
         self.incoming_edges: List[DirectedNode] = []
         self.outgoing_edges: List[DirectedNode] = []
 
+        assert not is_move or (
+            is_move and len(uses) == 1 and len(defines) == 1
+        ), "Move instructions must have exactly one use and one define temporary"
         self.uses = uses
         self.defines = defines
 
@@ -31,7 +47,7 @@ class DirectedNode:
 
     def __repr__(self):
         return self.name
-    
+
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -41,9 +57,9 @@ class DirectedEdge:
         self.src = src
         self.dst = dst
 
-        self.live_temporaries = []
+        self.live_temporaries: List[TemporaryRegister] = []
 
-    def add_live_temporary(self, temporary):
+    def add_live_temporary(self, temporary: TemporaryRegister):
         self.live_temporaries.append(temporary)
 
     def __repr__(self):
@@ -54,15 +70,20 @@ class DirectedGraph:
     def __init__(self):
         self.nodes: Dict[int, DirectedNode] = {}
         self.edges: List[DirectedEdge] = []
-        self.temporaries: List = []
+        self.temporaries: List[TemporaryRegister] = []
 
         self.start_node: Optional[DirectedNode] = None
 
-    def add_temporary(self, temporary):
+    def add_temporary(self, temporary: TemporaryRegister):
         self.temporaries.append(temporary)
 
     def add_node(
-        self, name, node_id: Optional[int] = None, uses: List = [], defines: List = [], start_node: bool = False
+        self,
+        name: HmmmInstruction,
+        node_id: Optional[int] = None,
+        uses: List[TemporaryRegister] = [],
+        defines: List[TemporaryRegister] = [],
+        start_node: bool = False,
     ) -> DirectedNode:
         for temporary in uses + defines:
             if temporary not in self.temporaries:
@@ -78,7 +99,9 @@ class DirectedGraph:
 
         return self.nodes[node_id]
 
-    def add_edge(self, src_name, dst_name) -> DirectedEdge:
+    def add_edge(
+        self, src_name: HmmmInstruction, dst_name: HmmmInstruction
+    ) -> DirectedEdge:
         src = self.get_node_by_name(src_name)
         dst = self.get_node_by_name(dst_name)
         self.edges.append(DirectedEdge(src, dst))
@@ -90,19 +113,21 @@ class DirectedGraph:
     def get_node(self, node_id: int) -> DirectedNode:
         return self.nodes[node_id]
 
-    def get_node_by_name(self, name: str) -> DirectedNode:
+    def get_node_by_name(self, name: HmmmInstruction) -> DirectedNode:
         for node in self.nodes.values():
             if node.name == name:
                 return node
         raise Exception(f"Node with name {name} not found.")
 
-    def dfs(self, name):
+    def dfs(self, name: HmmmInstruction):
         node = self.get_node_by_name(name)
         node.extra_properties["depth"] = 0
         self._dfs(node)
 
-        return sorted(self.nodes.values(), key=lambda node: node.extra_properties["depth"])
-    
+        return sorted(
+            self.nodes.values(), key=lambda node: node.extra_properties["depth"]
+        )
+
     def _dfs(self, node):
         node.extra_properties["visited"] = True
         for edge in node.outgoing_edges:
@@ -110,12 +135,14 @@ class DirectedGraph:
                 edge.extra_properties["depth"] = node.extra_properties["depth"] + 1
                 self._dfs(edge)
 
-    def set_start_node(self, name):
+    def set_start_node(self, name: HmmmInstruction):
         self.start_node = self.get_node_by_name(name)
 
     def calculate_liveness(self):
         if not self.start_node:
-            raise Exception("No start node found. Please specify a start node before calculating liveness.")
+            raise Exception(
+                "No start node found. Please specify a start node before calculating liveness."
+            )
 
         for node in self.nodes.values():
             node.live_in = []
@@ -131,14 +158,45 @@ class DirectedGraph:
                 old_live_out = copy.copy(node.live_out)
                 old_live_in = copy.copy(node.live_in)
 
-                node.live_out = list(set(functools.reduce(lambda a, b: a + b.live_in, node.outgoing_edges, [])))
-                node.live_in = list(set(node.uses + subtract_lists_(node.live_out, node.defines)))
+                node.live_out = list(
+                    set(
+                        functools.reduce(
+                            lambda a, b: a + b.live_in, node.outgoing_edges, []
+                        )
+                    )
+                )
+                node.live_in = list(
+                    set(node.uses + subtract_lists_(node.live_out, node.defines))
+                )
 
-                if not (lists_equal_(old_live_in, node.live_in) and lists_equal_(old_live_out, node.live_out)):
+                if not (
+                    lists_equal_(old_live_in, node.live_in)
+                    and lists_equal_(old_live_out, node.live_out)
+                ):
                     changed = True
-        
+
         for edge in self.edges:
             edge.live_temporaries = list(set(edge.src.live_out) | set(edge.dst.live_in))
+
+    def generate_interference_graph(self, registers: List[HmmmRegister]):
+        self.calculate_liveness()
+
+        interference_graph = InterferenceGraph(registers)
+
+        for temporary in self.temporaries:
+            interference_graph.add_node(temporary)
+
+        for edge in self.edges:
+            for temporary1, temporary2 in itertools.combinations(
+                edge.live_temporaries, 2
+            ):
+                interference_graph.add_interference_edge(temporary1, temporary2)
+
+        for node in self.nodes.values():
+            if node.is_move:
+                interference_graph.add_move_edge(node.uses[0], node.defines[0])
+
+        return interference_graph
 
     def __repr__(self):
         edges = []
@@ -146,8 +204,8 @@ class DirectedGraph:
         for edge in self.edges:
             edge_str = f'"{edge.src.name}" -> "{edge.dst.name}"'
             if edge.live_temporaries:
-                edge_str += f' [label="{" ".join(edge.live_temporaries)}"]'
-            edge_str += '; '
+                edge_str += f' [label="{" ".join([str(temp) for temp in edge.live_temporaries])}"]'
+            edge_str += "; "
             edges.append(edge_str)
 
         edges_str = " ".join(edges)
@@ -156,9 +214,10 @@ class DirectedGraph:
         # return f"digraph {{rankdir=LR; {edges_str}{{rank=same; {nodes_str}}}}}"
         return f"digraph {{{edges_str}}}"
 
+interference_node_name_type = Union[List[TemporaryRegister], TemporaryRegister]
 
 class Node:
-    def __init__(self, id: int, name, color=None):
+    def __init__(self, id: int, name: Union[List[TemporaryRegister], TemporaryRegister], color: Optional[HmmmRegister] = None):
         self.id = id
         self.name = name
         self.adjacent: List[Node] = []
@@ -215,8 +274,15 @@ class Node:
 
 
 class CoalescedNode(Node):
-    def __init__(self, id: int, nodes: List[Node], color=None):
-        super().__init__(id, "-".join([str(node.name) for node in nodes]), color)
+    def __init__(
+        self, id: int, nodes: List[Node], color: Optional[HmmmRegister] = None
+    ):
+        combined_node_name: List[TemporaryRegister] = []
+        for node in nodes:
+            if isinstance(node.name, list):
+                raise Exception("Cannot coalesce a coalesced node, please add the desired node to this node instead.")
+            combined_node_name += [node.name]
+        super().__init__(id, combined_node_name, color)
         self.nodes = nodes
 
     def __repr__(self):
@@ -231,7 +297,7 @@ class CoalescedNode(Node):
             node (Node): The node to add
         """
         self.nodes.append(node)
-        self.name = "-".join([str(node.name) for node in self.nodes])
+        self.name = [node.name for node in self.nodes]
 
 
 class Graph:
@@ -252,11 +318,13 @@ class Graph:
 
         return "graph {{{}}}".format(" ".join(edges))
 
-    def add_node(self, name, color=None, id=None) -> Node:
+    def add_node(
+        self, name: TemporaryRegister, color: Optional[HmmmRegister] = None, id: Optional[int] = None
+    ) -> Node:
         """Creates and adds a node to the graph
 
         Arguments:
-            name {str} -- The name of the node
+            name {TemporaryRegister} -- The name of the node
             color (optional) {any} -- The color of the node
             id (optional) {int} -- The id of the node
 
@@ -268,7 +336,7 @@ class Graph:
         self.add_existing_node(node)
         return node
 
-    def add_existing_node(self, node) -> None:
+    def add_existing_node(self, node: Node) -> None:
         """Adds an existing node to the graph
 
         Arguments:
@@ -279,11 +347,11 @@ class Graph:
             row.append(0)
         self.adjacency_matrix.append([0] * len(self.nodes))
 
-    def get_node_by_name(self, name) -> Node:
+    def get_node_by_name(self, name: interference_node_name_type) -> Node:
         """Finds the node with the given name
 
         Arguments:
-            name {any} -- The name of the node
+            name {TemporaryRegister} -- The name of the node
         """
         for node in self.nodes.values():
             if node.name == name:
@@ -291,7 +359,7 @@ class Graph:
 
         raise Exception(f"Node {name} not found")
 
-    def add_interference_edge(self, name1, name2) -> None:
+    def add_interference_edge(self, name1: interference_node_name_type, name2: interference_node_name_type) -> None:
         """Adds an interference edge between two nodes
 
         Arguments:
@@ -314,7 +382,7 @@ class Graph:
         node1.adjacent.append(node2)
         node2.adjacent.append(node1)
 
-    def add_move_edge(self, name1, name2) -> None:
+    def add_move_edge(self, name1: interference_node_name_type, name2: interference_node_name_type) -> None:
         """Adds a move edge between two nodes
 
         Arguments:
@@ -337,7 +405,7 @@ class Graph:
         node1.move_list.append(node2)
         node2.move_list.append(node1)
 
-    def check_adjacency(self, name1, name2) -> bool:
+    def check_adjacency(self, name1: interference_node_name_type, name2: interference_node_name_type) -> bool:
         """Checks if two nodes are adjacent
 
         Arguments:
@@ -351,7 +419,7 @@ class Graph:
         node2 = self.get_node_by_name(name2)
         return self.adjacency_matrix[node1.id][node2.id] == 1
 
-    def get_adjacent(self, name) -> List[Node]:
+    def get_adjacent(self, name: interference_node_name_type) -> List[Node]:
         """Gets a list of nodes adjacent to the node with the given name
 
         Arguments:
@@ -362,7 +430,7 @@ class Graph:
         """
         return self.get_node_by_name(name).get_adjacent()
 
-    def get_move_list(self, name) -> List[Node]:
+    def get_move_list(self, name: interference_node_name_type) -> List[Node]:
         """Gets a list of nodes in the move list of the node with the given name
 
         Arguments:
@@ -373,7 +441,7 @@ class Graph:
         """
         return self.get_node_by_name(name).get_move()
 
-    def count_adjacent(self, name) -> int:
+    def count_adjacent(self, name: interference_node_name_type) -> int:
         """Gets the number of nodes adjacent to the node with the given name
 
         Arguments:
@@ -384,7 +452,7 @@ class Graph:
         """
         return self.get_node_by_name(name).count_adjacent()
 
-    def get_adjacency_matrix_index(self, name) -> int:
+    def get_adjacency_matrix_index(self, name: interference_node_name_type) -> int:
         """Gets the index of the node with the given name in the adjacency matrix
 
         Arguments:
@@ -397,13 +465,13 @@ class Graph:
 
 
 class InterferenceGraph(Graph):
-    def __init__(self, registers: List) -> None:
+    def __init__(self, registers: List[HmmmRegister]) -> None:
         super().__init__()
         self.registers = registers
         self.simplified_nodes: Dict[int, Node] = {}
         self.running_node_id = 0
 
-    def add_node(self, name, register=None) -> Node:
+    def add_node(self, name: TemporaryRegister, register: Optional[HmmmRegister]=None) -> Node:
         """Creates and adds a node to the graph
 
         Arguments:
@@ -421,7 +489,7 @@ class InterferenceGraph(Graph):
         """Takes a snapshot of the current state of the graph"""
         self.snapshot = copy.deepcopy(self)  # type: ignore
 
-    def remove_node(self, name) -> Node:
+    def remove_node(self, name: interference_node_name_type) -> Node:
         """Removes a node from the graph
 
         Arguments:
@@ -533,13 +601,17 @@ class InterferenceGraph(Graph):
                         self.remove_node(move.name)
                         self.remove_node(node.name)
 
+                        for n in coalesced_node.name:
+                            if isinstance(n, List):
+                                raise Exception("Cannot coalesce a coalesced node, instead please add it to the already coalesced node")
+
                         for combined_adjacent_node in combined_adjacent:
                             self.add_interference_edge(
-                                coalesced_node.name, combined_adjacent_node.name
+                                coalesced_node.name, combined_adjacent_node.name  # type: ignore
                             )
                         for combined_move_node in combined_move:
                             self.add_move_edge(
-                                coalesced_node.name, combined_move_node.name
+                                coalesced_node.name, combined_move_node.name  # type: ignore
                             )
                         coalesced_nodes.append(coalesced_node)
                         break
@@ -551,7 +623,7 @@ class InterferenceGraph(Graph):
                 break
         return coalesced_nodes
 
-    def freeze(self, name):
+    def freeze(self, name: interference_node_name_type):
         """Freezes a node in the graph
 
         Arguments:
@@ -612,7 +684,7 @@ class InterferenceGraph(Graph):
                     reverse=True,
                 )
                 if len(move_related_nodes) > 0:
-                    self.freeze(move_related_nodes[0])
+                    self.freeze(move_related_nodes[0].name)
 
         if len(self.nodes) > 0:
             raise Exception(
@@ -653,78 +725,77 @@ class InterferenceGraph(Graph):
 
 
 if __name__ == "__main__":
+    # NOTE: Everything here is the wrong types because its easier to use strings for testing.
+
     ### Liveness Analysis ###
-    # TODOs: 1) get graph visualization working - DONE
-    #        2) get depth first search for node ordering working - DONE
-    #        3) implement dataflow equations for liveness analysis -- DONE
-    #        4) add function to generate interference graph from liveness analysis
 
     control_flow_graph = DirectedGraph()
-    control_flow_graph.add_temporary("a")
-    control_flow_graph.add_temporary("b")
-    control_flow_graph.add_temporary("c")
+    control_flow_graph.add_temporary("a")  # type: ignore
+    control_flow_graph.add_temporary("b")  # type: ignore
+    control_flow_graph.add_temporary("c")  # type: ignore
 
-    control_flow_graph.add_node("a = 0", defines=["a"], start_node=True)
-    control_flow_graph.add_node("b = a+1", uses=["a"], defines=["b"])
-    control_flow_graph.add_node("c = c+b", uses=["b", "c"], defines=["c"])
-    control_flow_graph.add_node("a = b*2", uses=["b"], defines=["a"])
-    control_flow_graph.add_node("a<N", uses=["a"])
-    control_flow_graph.add_node("return c", uses=["c"])
+    control_flow_graph.add_node("a = 0", defines=["a"], start_node=True)   # type: ignore
+    control_flow_graph.add_node("b = a+1", uses=["a"], defines=["b"])  # type: ignore
+    control_flow_graph.add_node("c = c+b", uses=["b", "c"], defines=["c"])  # type: ignore
+    control_flow_graph.add_node("a = b*2", uses=["b"], defines=["a"])  # type: ignore
+    control_flow_graph.add_node("a<N", uses=["a"])  # type: ignore
+    control_flow_graph.add_node("return c", uses=["c"])  # type: ignore
 
-    control_flow_graph.add_edge("a = 0", "b = a+1")
-    control_flow_graph.add_edge("b = a+1", "c = c+b")
-    control_flow_graph.add_edge("c = c+b", "a = b*2")
-    control_flow_graph.add_edge("a = b*2", "a<N")
-    control_flow_graph.add_edge("a<N", "b = a+1")
-    control_flow_graph.add_edge("a<N", "return c")
+    control_flow_graph.add_edge("a = 0", "b = a+1")  # type: ignore
+    control_flow_graph.add_edge("b = a+1", "c = c+b")  # type: ignore
+    control_flow_graph.add_edge("c = c+b", "a = b*2")  # type: ignore
+    control_flow_graph.add_edge("a = b*2", "a<N")  # type: ignore
+    control_flow_graph.add_edge("a<N", "b = a+1")  # type: ignore
+    control_flow_graph.add_edge("a<N", "return c")  # type: ignore
 
     control_flow_graph.calculate_liveness()
+    control_flow_graph.generate_interference_graph([1, 2, 3, 4])  # type: ignore
     print(control_flow_graph)
     print()
 
     ### Interference Graph Testing ###
 
-    interference_graph = InterferenceGraph([1, 2, 3, 4])
+    interference_graph = InterferenceGraph([1, 2, 3, 4])  # type: ignore
 
-    interference_graph.add_node("b")
-    interference_graph.add_node("c")
-    interference_graph.add_node("d")
-    interference_graph.add_node("e")
-    interference_graph.add_node("f")
-    interference_graph.add_node("g")
-    interference_graph.add_node("h")
-    interference_graph.add_node("j")
-    interference_graph.add_node("k")
-    interference_graph.add_node("m")
+    interference_graph.add_node("b")  # type: ignore
+    interference_graph.add_node("c")  # type: ignore
+    interference_graph.add_node("d")  # type: ignore
+    interference_graph.add_node("e")  # type: ignore
+    interference_graph.add_node("f")  # type: ignore
+    interference_graph.add_node("g")  # type: ignore
+    interference_graph.add_node("h")  # type: ignore
+    interference_graph.add_node("j")  # type: ignore
+    interference_graph.add_node("k")  # type: ignore
+    interference_graph.add_node("m")  # type: ignore
 
-    interference_graph.add_interference_edge("b", "c")
-    interference_graph.add_interference_edge("b", "d")
-    interference_graph.add_interference_edge("b", "e")
-    interference_graph.add_interference_edge("b", "k")
-    interference_graph.add_interference_edge("b", "m")
-    interference_graph.add_move_edge("b", "j")
+    interference_graph.add_interference_edge("b", "c")  # type: ignore
+    interference_graph.add_interference_edge("b", "d")  # type: ignore
+    interference_graph.add_interference_edge("b", "e")  # type: ignore
+    interference_graph.add_interference_edge("b", "k")  # type: ignore
+    interference_graph.add_interference_edge("b", "m")  # type: ignore
+    interference_graph.add_move_edge("b", "j")  # type: ignore
 
-    interference_graph.add_interference_edge("c", "m")
-    interference_graph.add_move_edge("c", "d")
+    interference_graph.add_interference_edge("c", "m")  # type: ignore
+    interference_graph.add_move_edge("c", "d")  # type: ignore
 
-    interference_graph.add_interference_edge("d", "k")
-    interference_graph.add_interference_edge("d", "j")
-    interference_graph.add_interference_edge("d", "m")
+    interference_graph.add_interference_edge("d", "k")  # type: ignore
+    interference_graph.add_interference_edge("d", "j")  # type: ignore
+    interference_graph.add_interference_edge("d", "m")  # type: ignore
 
-    interference_graph.add_interference_edge("e", "f")
-    interference_graph.add_interference_edge("e", "j")
-    interference_graph.add_interference_edge("e", "m")
+    interference_graph.add_interference_edge("e", "f")  # type: ignore
+    interference_graph.add_interference_edge("e", "j")  # type: ignore
+    interference_graph.add_interference_edge("e", "m")  # type: ignore
 
-    interference_graph.add_interference_edge("f", "j")
-    interference_graph.add_interference_edge("f", "m")
+    interference_graph.add_interference_edge("f", "j")  # type: ignore
+    interference_graph.add_interference_edge("f", "m")  # type: ignore
 
-    interference_graph.add_interference_edge("g", "k")
-    interference_graph.add_interference_edge("g", "h")
-    interference_graph.add_interference_edge("g", "j")
+    interference_graph.add_interference_edge("g", "k")  # type: ignore
+    interference_graph.add_interference_edge("g", "h")  # type: ignore
+    interference_graph.add_interference_edge("g", "j")  # type: ignore
 
-    interference_graph.add_interference_edge("h", "j")
+    interference_graph.add_interference_edge("h", "j")  # type: ignore
 
-    interference_graph.add_interference_edge("j", "k")
+    interference_graph.add_interference_edge("j", "k")  # type: ignore
 
     print(interference_graph)
 

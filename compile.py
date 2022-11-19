@@ -6,7 +6,7 @@ from typing import List, Tuple, Union, Optional
 import pycparser
 from pycparser import parse_file
 
-from hmmm_code import (
+from lib.hmmm_code import (
     HmmmInstruction,
     HmmmProgram,
     HmmmRegister,
