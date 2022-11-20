@@ -2,8 +2,7 @@ from typing import Dict, List, Tuple, Optional, Union
 import copy
 import functools
 import itertools
-from hmmm_code import TemporaryRegister, HmmmInstruction, HmmmRegister
-
+from lib.hmmm_utils import HmmmInstruction, HmmmRegister, TemporaryRegister
 
 def subtract_lists_(l1: List, l2: List):
     return [x for x in l1 if x not in l2]
@@ -16,7 +15,6 @@ def lists_equal_(l1: List, l2: List):
 
     """
     return set(l1) == set(l2)
-
 
 class DirectedNode:
     def __init__(
@@ -529,7 +527,7 @@ class InterferenceGraph(Graph):
         """
         simplified_nodes = []
         for _ in range(num_to_simplify):
-            for node in sorted(interference_graph.nodes.values(), reverse=True):
+            for node in sorted(self.nodes.values(), reverse=True):
                 if (
                     node.count_adjacent() < len(self.registers)
                     and node.count_move() == 0
@@ -580,7 +578,7 @@ class InterferenceGraph(Graph):
         """
         coalesced_nodes = []
         for _ in range(num_to_coalesce):
-            for node in sorted(interference_graph.nodes.values(), reverse=True):
+            for node in sorted(self.nodes.values(), reverse=True):
                 for move in node.get_move():
                     if self.can_coalesce(node, move, method="george"):
                         coalesced_node = CoalescedNode(
