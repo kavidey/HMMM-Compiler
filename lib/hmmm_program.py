@@ -11,7 +11,6 @@ from lib.hmmm_utils import (
     generate_instruction,
 )
 
-
 class HmmmProgram:
     def __init__(self):
         self.code: List[Union[HmmmInstruction, str]] = []
@@ -154,6 +153,19 @@ class HmmmProgram:
             assert isinstance(colored_temporary.color, HmmmRegister)
 
             colored_temporary.name.set_register(colored_temporary.color)
+
+        to_remove = []
+        for i in range(len(self.code)):
+            instruction = self.code[i]
+            assert isinstance(instruction, HmmmInstruction)
+            if instruction.opcode == "copy":
+                assert isinstance(instruction.arg1, TemporaryRegister)
+                assert isinstance(instruction.arg2, TemporaryRegister)
+
+                if instruction.arg1.get_register() == instruction.arg2.get_register():
+                    to_remove.append(i)
+        
+        self.code = [ele for idx, ele in enumerate(self.code) if idx not in to_remove]
 
 if __name__ == "__main__":
     print("Simple Adder")

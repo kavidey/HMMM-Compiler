@@ -3,9 +3,9 @@
 // Test recursive math parsing
 int main()
 {
-    int r1 = 3;
-    int r2 = 4;
-    int r3 = r1 * 2 + r2 * 3;
-    printf("%d\n", r3);
+    int a = 3;
+    int b = 4;
+    int c = a * 2 + b * 3;
+    printf("%d\n", c);
     return 0;
 }
