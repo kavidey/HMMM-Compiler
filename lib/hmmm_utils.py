@@ -115,7 +115,7 @@ class HmmmInstruction:
         elif isinstance(arg, TemporaryRegister):
             return arg.get_register().value
         elif isinstance(arg, MemoryAddress):
-            return f"{arg.address}"
+            return f"{arg.get_address()}"
         elif isinstance(arg, int):
             return str(arg)
         else:
@@ -135,7 +135,7 @@ class HmmmInstruction:
         Returns:
             defines, uses -- The temporary registers defined and used by this instruction
         """
-        if self.opcode == "halt":
+        if self.opcode in ["halt", "nop"]:
             return [], []
         elif self.opcode == "read":
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
@@ -165,14 +165,14 @@ class HmmmInstruction:
             assert isinstance(self.arg2, (HmmmRegister, TemporaryRegister))
             return [self.arg1], [self.arg2]
         elif self.opcode == "jumpn":
-            assert isinstance(self.arg1, int)
+            assert isinstance(self.arg1, (int, MemoryAddress))
             return [], []
         elif self.opcode == "jumpr":
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
             return [], [self.arg1]
         elif self.opcode in ["jeqzn", "jnezn", "jltzn", "jgtzn", "calln"]:
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
-            assert isinstance(self.arg2, int)
+            assert isinstance(self.arg2, (int, MemoryAddress))
             return [], [self.arg1]
         elif self.opcode in ["pushr", "storer"]:
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))

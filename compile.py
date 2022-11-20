@@ -121,7 +121,7 @@ def parse_unary_op(node: pycparser.c_ast.UnaryOp, program: HmmmProgram) -> Tempo
     if node.op == "-":
         program.add_instruction(
             generate_instruction(
-                "sub", result, HmmmRegister.R0, result
+                "neg", result, result
             )
         )
     elif node.op == "p--":
@@ -132,6 +132,8 @@ def parse_unary_op(node: pycparser.c_ast.UnaryOp, program: HmmmProgram) -> Tempo
     #     program.add_instruction(generate_instruction("not", HmmmRegister.R13, HmmmRegister.R13))
     else:
         raise NotImplementedError(f"Unary operation {node.op} is not implemented")
+
+    return result
 
 
 def parse_decl_assign(
@@ -233,19 +235,19 @@ def parse_condition(
     # The memory address to jump to needs to be overwritten with the correct address later
     if node.op == "==":
         jump_instruction = generate_instruction(
-            "jeqzn", left_register, MemoryAddress(-1)
+            "jeqzn", left_register, MemoryAddress(-1, None)
         )
     elif node.op == "!=":
         jump_instruction = generate_instruction(
-            "jnezn", left_register, MemoryAddress(-1)
+            "jnezn", left_register, MemoryAddress(-1, None)
         )
     elif node.op == "<":
         jump_instruction = generate_instruction(
-            "jltzn", left_register, MemoryAddress(-1)
+            "jltzn", left_register, MemoryAddress(-1, None)
         )
     elif node.op == ">":
         jump_instruction = generate_instruction(
-            "jgtzn", left_register, MemoryAddress(-1)
+            "jgtzn", left_register, MemoryAddress(-1, None)
         )
     else:
         assert False, "Invalid operation"
@@ -284,12 +286,12 @@ def parse_if(
 
     jump_iftrue = parse_condition(node.cond, program)
 
-    jump_iffalse = generate_instruction("jumpn", MemoryAddress(-1))
+    jump_iffalse = generate_instruction("jumpn", MemoryAddress(-1, None))
     program.add_instruction(jump_iffalse)
 
     nop = generate_instruction("nop")
     program.add_instruction(nop)
-    jump_iftrue.arg2 = nop.address
+    jump_iftrue.arg2 = MemoryAddress(-1, nop)
     break_statements, continue_statements = parse_compound(
         node.iftrue, program, is_in_loop
     )
@@ -297,11 +299,11 @@ def parse_if(
     jump_end = None
     # If there is an else statement add it to the program
     if node.iffalse != None:
-        jump_end = generate_instruction("jumpn", MemoryAddress(-1))
+        jump_end = generate_instruction("jumpn", MemoryAddress(-1, None))
         program.add_instruction(jump_end)
         beginning_of_iffalse = generate_instruction("nop")
         program.add_instruction(beginning_of_iffalse)
-        jump_iffalse.arg1 = beginning_of_iffalse.address
+        jump_iffalse.arg1 = MemoryAddress(-1, beginning_of_iffalse)
         if isinstance(node.iffalse, pycparser.c_ast.Compound):
             parse_compound(node.iffalse, program, is_in_loop)
         elif isinstance(node.iffalse, pycparser.c_ast.If):
@@ -311,7 +313,7 @@ def parse_if(
 
     end_of_if_block = generate_instruction("nop")
     program.add_instruction(end_of_if_block)
-    jump_end.arg1 = end_of_if_block.address
+    jump_end.arg1 = MemoryAddress(-1, end_of_if_block)
 
     return break_statements, continue_statements
 
@@ -341,30 +343,30 @@ def parse_while(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
 
     jump_if_not_done = parse_condition(node.cond, program)
 
-    jump_if_done = generate_instruction("jumpn", MemoryAddress(-1))
+    jump_if_done = generate_instruction("jumpn", MemoryAddress(-1, None))
     program.add_instruction(jump_if_done)
 
     beginning_of_while = generate_instruction("nop")
     program.add_instruction(beginning_of_while)
-    jump_if_not_done.arg2 = beginning_of_while.address
+    jump_if_not_done.arg2 = MemoryAddress(-1, beginning_of_while)
 
     break_statements, continue_statements = parse_compound(
         node.stmt, program, is_in_loop=True
     )
 
     program.add_instruction(
-        generate_instruction("jumpn", beginning_of_while_check.address)
+        generate_instruction("jumpn", MemoryAddress(-1, beginning_of_while_check))
     )
 
     end_of_while = generate_instruction("nop")
     program.add_instruction(end_of_while)
-    jump_if_done.arg1 = end_of_while.address
+    jump_if_done.arg1 = MemoryAddress(-1, end_of_while)
 
     for break_statement in break_statements:
-        break_statement.arg1 = end_of_while.address
+        break_statement.arg1 = MemoryAddress(-1, end_of_while)
 
     for continue_statement in continue_statements:
-        continue_statement.arg1 = beginning_of_while_check.address
+        continue_statement.arg1 = MemoryAddress(-1, beginning_of_while_check)
 
 
 def parse_for(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
@@ -403,12 +405,12 @@ def parse_for(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
 
     jump_if_not_done = parse_condition(node.cond, program)
 
-    jump_if_done = generate_instruction("jumpn", MemoryAddress(-1))
+    jump_if_done = generate_instruction("jumpn", MemoryAddress(-1, None))
     program.add_instruction(jump_if_done)
 
     beginning_of_for = generate_instruction("nop")
     program.add_instruction(beginning_of_for)
-    jump_if_not_done.arg2 = beginning_of_for.address
+    jump_if_not_done.arg2 = MemoryAddress(-1, beginning_of_for)
 
     break_statements, continue_statements = parse_compound(
         node.stmt, program, is_in_loop=True
@@ -422,18 +424,18 @@ def parse_for(node: pycparser.c_ast.While, program: HmmmProgram) -> None:
     )
 
     program.add_instruction(
-        generate_instruction("jumpn", beginning_of_for_check.address)
+        generate_instruction("jumpn", MemoryAddress(-1, beginning_of_for_check))
     )
 
     end_of_for = generate_instruction("nop")
     program.add_instruction(end_of_for)
-    jump_if_done.arg1 = end_of_for.address
+    jump_if_done.arg1 = MemoryAddress(-1, end_of_for)
 
     for break_statement in break_statements:
-        break_statement.arg1 = end_of_for.address
+        break_statement.arg1 = MemoryAddress(-1, end_of_for)
 
     for continue_statement in continue_statements:
-        continue_statement.arg1 = beginning_of_for_check.address
+        continue_statement.arg1 = MemoryAddress(-1, beginning_of_for_check)
 
 
 def parse_compound(
@@ -470,14 +472,14 @@ def parse_compound(
             parse_for(stmt, program)
         elif isinstance(stmt, pycparser.c_ast.Continue):
             if is_in_loop:
-                continue_statement = generate_instruction("jumpn", MemoryAddress(-1))
+                continue_statement = generate_instruction("jumpn", MemoryAddress(-1, None))
                 program.add_instruction(continue_statement)
                 continue_code.append(continue_statement)
             else:
                 raise Exception("Continue statement not in a loop")
         elif isinstance(stmt, pycparser.c_ast.Break):
             if is_in_loop:
-                break_statement = generate_instruction("jumpn", MemoryAddress(-1))
+                break_statement = generate_instruction("jumpn", MemoryAddress(-1, None))
                 program.add_instruction(break_statement)
                 break_code.append(break_statement)
             else:

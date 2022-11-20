@@ -3,26 +3,26 @@
 // Test nested if/else statements
 int main()
 {
-    int r1;
-    int r2;
-    int r3;
+    int num1;
+    int num2;
+    int num3;
     
-    scanf("%d", &r1);
-    scanf("%d", &r2);
-    scanf("%d", &r3);
+    scanf("%d", &num1);
+    scanf("%d", &num2);
+    scanf("%d", &num3);
 
-    if (r1 > r2)
+    if (num1 > num2)
     {
-        if (r1 > r3) {
-            printf("%d\n", r1);
+        if (num1 > num3) {
+            printf("%d\n", num1);
         } else {
-            printf("%d\n", r3);
+            printf("%d\n", num3);
         }
     } else {
-        if (r2 > r3) {
-            printf("%d\n", r2);
+        if (num2 > num3) {
+            printf("%d\n", num2);
         } else {
-            printf("%d\n", r3);
+            printf("%d\n", num3);
         }
     }
     return 0;

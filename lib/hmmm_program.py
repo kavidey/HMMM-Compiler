@@ -100,6 +100,9 @@ class HmmmProgram:
         if self.compiled:
             raise Exception("Cannot assign registers to compiled program")
 
+        # This makes sure lines that do the identical thing are treated separately because they will have different addresses
+        self.assign_line_numbers()
+
         control_flow_graph = DirectedGraph()
 
         # Add temporary registers to the graph
@@ -129,7 +132,7 @@ class HmmmProgram:
                     "calln",
                 ]:
                     control_flow_graph.add_edge(instruction, self.code[instruction.arg2.get_address()])  # type: ignore
-
+        
         # Assign registers
         interference_graph = control_flow_graph.generate_interference_graph(
             [
@@ -147,6 +150,7 @@ class HmmmProgram:
                 HmmmRegister.R12,
             ]
         )
+
         colored_temporaries = interference_graph.assign_registers()
         for colored_temporary in colored_temporaries:
             assert isinstance(colored_temporary.name, TemporaryRegister)

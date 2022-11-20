@@ -4,6 +4,7 @@ import functools
 import itertools
 from lib.hmmm_utils import HmmmInstruction, HmmmRegister, TemporaryRegister
 
+
 def subtract_lists_(l1: List, l2: List):
     return [x for x in l1 if x not in l2]
 
@@ -15,6 +16,7 @@ def lists_equal_(l1: List, l2: List):
 
     """
     return set(l1) == set(l2)
+
 
 class DirectedNode:
     def __init__(
@@ -188,7 +190,8 @@ class DirectedGraph:
             for temporary1, temporary2 in itertools.combinations(
                 edge.live_temporaries, 2
             ):
-                interference_graph.add_interference_edge(temporary1, temporary2)
+                if not interference_graph.check_adjacency(temporary1, temporary2):
+                    interference_graph.add_interference_edge(temporary1, temporary2)
 
         for node in self.nodes.values():
             if node.is_move:
@@ -212,10 +215,17 @@ class DirectedGraph:
         # return f"digraph {{rankdir=LR; {edges_str}{{rank=same; {nodes_str}}}}}"
         return f"digraph {{{edges_str}}}"
 
+
 interference_node_name_type = Union[List[TemporaryRegister], TemporaryRegister]
 
+
 class Node:
-    def __init__(self, id: int, name: Union[List[TemporaryRegister], TemporaryRegister], color: Optional[HmmmRegister] = None):
+    def __init__(
+        self,
+        id: int,
+        name: Union[List[TemporaryRegister], TemporaryRegister],
+        color: Optional[HmmmRegister] = None,
+    ):
         self.id = id
         self.name = name
         self.adjacent: List[Node] = []
@@ -278,7 +288,9 @@ class CoalescedNode(Node):
         combined_node_name: List[TemporaryRegister] = []
         for node in nodes:
             if isinstance(node.name, list):
-                raise Exception("Cannot coalesce a coalesced node, please add the desired node to this node instead.")
+                raise Exception(
+                    "Cannot coalesce a coalesced node, please add the desired node to this node instead."
+                )
             combined_node_name += [node.name]
         super().__init__(id, combined_node_name, color)
         self.nodes = nodes
@@ -308,16 +320,19 @@ class Graph:
 
         for node in self.nodes.values():
             for adjacent_node in node.get_adjacent():
-                if not f"{adjacent_node.name} -- {node.name};" in edges:
-                    edges.append(f"{node.name} -- {adjacent_node.name};")
+                if not f'"{adjacent_node.name}" -- "{node.name}";' in edges:
+                    edges.append(f'"{node.name}" -- "{adjacent_node.name}";')
             for move_node in node.get_move():
-                if not f"{move_node.name} -- {node.name} [style=dotted];" in edges:
-                    edges.append(f"{node.name} -- {move_node.name} [style=dotted];")
+                if not f'"{move_node.name}" -- "{node.name}" [style=dotted];' in edges:
+                    edges.append(f'"{node.name}" -- "{move_node.name}" [style=dotted];')
 
         return "graph {{{}}}".format(" ".join(edges))
 
     def add_node(
-        self, name: TemporaryRegister, color: Optional[HmmmRegister] = None, id: Optional[int] = None
+        self,
+        name: TemporaryRegister,
+        color: Optional[HmmmRegister] = None,
+        id: Optional[int] = None,
     ) -> Node:
         """Creates and adds a node to the graph
 
@@ -357,7 +372,9 @@ class Graph:
 
         raise Exception(f"Node {name} not found")
 
-    def add_interference_edge(self, name1: interference_node_name_type, name2: interference_node_name_type) -> None:
+    def add_interference_edge(
+        self, name1: interference_node_name_type, name2: interference_node_name_type
+    ) -> None:
         """Adds an interference edge between two nodes
 
         Arguments:
@@ -380,7 +397,9 @@ class Graph:
         node1.adjacent.append(node2)
         node2.adjacent.append(node1)
 
-    def add_move_edge(self, name1: interference_node_name_type, name2: interference_node_name_type) -> None:
+    def add_move_edge(
+        self, name1: interference_node_name_type, name2: interference_node_name_type
+    ) -> None:
         """Adds a move edge between two nodes
 
         Arguments:
@@ -403,7 +422,9 @@ class Graph:
         node1.move_list.append(node2)
         node2.move_list.append(node1)
 
-    def check_adjacency(self, name1: interference_node_name_type, name2: interference_node_name_type) -> bool:
+    def check_adjacency(
+        self, name1: interference_node_name_type, name2: interference_node_name_type
+    ) -> bool:
         """Checks if two nodes are adjacent
 
         Arguments:
@@ -469,7 +490,9 @@ class InterferenceGraph(Graph):
         self.simplified_nodes: Dict[int, Node] = {}
         self.running_node_id = 0
 
-    def add_node(self, name: TemporaryRegister, register: Optional[HmmmRegister]=None) -> Node:
+    def add_node(
+        self, name: TemporaryRegister, register: Optional[HmmmRegister] = None
+    ) -> Node:
         """Creates and adds a node to the graph
 
         Arguments:
@@ -601,7 +624,9 @@ class InterferenceGraph(Graph):
 
                         for n in coalesced_node.name:
                             if isinstance(n, List):
-                                raise Exception("Cannot coalesce a coalesced node, instead please add it to the already coalesced node")
+                                raise Exception(
+                                    "Cannot coalesce a coalesced node, instead please add it to the already coalesced node"
+                                )
 
                         for combined_adjacent_node in combined_adjacent:
                             self.add_interference_edge(
@@ -732,7 +757,7 @@ if __name__ == "__main__":
     control_flow_graph.add_temporary("b")  # type: ignore
     control_flow_graph.add_temporary("c")  # type: ignore
 
-    control_flow_graph.add_node("a = 0", defines=["a"], start_node=True)   # type: ignore
+    control_flow_graph.add_node("a = 0", defines=["a"], start_node=True)  # type: ignore
     control_flow_graph.add_node("b = a+1", uses=["a"], defines=["b"])  # type: ignore
     control_flow_graph.add_node("c = c+b", uses=["b", "c"], defines=["c"])  # type: ignore
     control_flow_graph.add_node("a = b*2", uses=["b"], defines=["a"])  # type: ignore

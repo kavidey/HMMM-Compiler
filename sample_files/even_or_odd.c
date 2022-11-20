@@ -3,10 +3,10 @@
 // Test simple if/else statements
 int main()
 {
-    int r1;
-    scanf("%d", &r1);
+    int input;
+    scanf("%d", &input);
 
-    if (r1 % 2 == 0)
+    if (input % 2 == 0)
     {
         printf("%d\n", 0);
     } else {

@@ -3,37 +3,37 @@
 // Test nested control flow, break, and continue
 int main()
 {
-    int r1; // low
-    int r2; // high
+    int lower_bound;
+    int upper_bound;
 
-    scanf("%d", &r1);
-    scanf("%d", &r2);
+    scanf("%d", &lower_bound);
+    scanf("%d", &upper_bound);
 
-    while (r1 < r2)
+    while (lower_bound < upper_bound)
     {
-        if (r1 < 2)
+        if (lower_bound < 2)
         {
-            r1++;
+            lower_bound++;
             continue;
         }
 
-        int r3 = 0; // is prime
+        int is_prime = 0;
 
-        for (int r4 = 2; r4 < r1; r4++)
+        for (int i = 2; i < lower_bound; i++)
         {
-            if (r1 % r4 == 0)
+            if (lower_bound % i == 0)
             {
-                r3 = 1;
+                is_prime = 1;
                 break;
             }
         }
 
-        if (r3 == 0)
+        if (is_prime == 0)
         {
-            printf("%d\n", r1);
+            printf("%d\n", lower_bound);
         }
 
-        r1++;
+        lower_bound++;
     }
 
     return 0;

@@ -3,14 +3,14 @@
 // Test chain of if/else if/else statements
 int main()
 {
-    int r1;
+    int input;
     
-    scanf("%d", &r1);
+    scanf("%d", &input);
 
-    if (r1 < 0)
+    if (input < 0)
     {
         printf("%d\n", -1);
-    } else if (r1 > 0) {
+    } else if (input > 0) {
         printf("%d\n", 1);
     } else {
         printf("%d\n", 0);

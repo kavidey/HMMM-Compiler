@@ -3,18 +3,18 @@
 // Test while loops
 int main()
 {
-    int r1;
-    scanf("%d", &r1);
+    int sum_to;
+    scanf("%d", &sum_to);
 
-    int r2 = 0;
+    int running_sum = 0;
 
-    while (r1 > 0)
+    while (sum_to > 0)
     {
-        r2 = r2 + r1;
-        r1--;
+        running_sum = running_sum + sum_to;
+        sum_to--;
     }
 
-    printf("%d\n", r2);
+    printf("%d\n", running_sum);
     
     return 0;
 }

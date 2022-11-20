@@ -3,17 +3,17 @@
 // Test for loops
 int main()
 {
-    int r1;
-    scanf("%d", &r1);
+    int num;
+    scanf("%d", &num);
 
-    int r2 = 0;
-    int r3 = 1;
+    int curr_fib = 0;
+    int nex_fib = 1;
 
-    for (int r4 = 0; r4 < r1; r4++)
+    for (int i = 0; i < num; i++)
     {
-        r2 = r2 + r3;
-        r3 = r2 - r3;
-        printf("%d\n", r2);
+        curr_fib = curr_fib + nex_fib;
+        nex_fib = curr_fib - nex_fib;
+        printf("%d\n", curr_fib);
     }
 
     return 0;
