@@ -1,5 +1,5 @@
 import unittest
-from compile import generate_ast, generate_program
+from compile import Compiler
 from pathlib import Path
 
 import os, sys
@@ -52,8 +52,8 @@ class TestProgram(unittest.TestCase):
 
         hmmm_simulator.implementations["read"] = custom_op_read
 
-        ast = generate_ast(Path("sample_files") / filename)
-        program = generate_program(ast)
+        compiler = Compiler()
+        program = compiler.compile(str(Path("sample_files") / filename))
 
         with HiddenPrints():
             machine_code = hmmm_simulator.programToMachineCode(

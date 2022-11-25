@@ -21,6 +21,7 @@
         "rvalue",
         "scanf",
         "setn",
+        "showcoord",
         "storen",
         "storer",
         "stringio"
