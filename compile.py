@@ -17,9 +17,36 @@ from lib.hmmm_utils import (
 )
 
 
+class Scope:
+    def __init__(self, parent_scope: "Optional[Scope]" = None) -> None:
+        self.scope: dict[object, TemporaryRegister] = {}
+        self.parent_scope = parent_scope
+
+    def __getitem__(self, key: object) -> TemporaryRegister:
+        if key in self.scope:
+            return self.scope[key]
+        elif self.parent_scope is not None:
+            return self.parent_scope[key]
+        else:
+            raise ReferenceError(f"Variable {key} not found in scope")
+
+    def declar_var(
+        self,
+        key: object,
+        register: Optional[HmmmRegister] = None,
+    ) -> TemporaryRegister:
+        return get_temporary_register(self.scope, key, register)
+
+    def make_temporary(self, key: Optional[object] = None) -> TemporaryRegister:
+        return get_temporary_register(self.scope, key)
+
+    def get_vars(self) -> List[TemporaryRegister]:
+        return list(self.scope.values())
+
+
 class Compiler:
     def __init__(self) -> None:
-        self.global_scope: dict[object, TemporaryRegister] = {}
+        pass
 
     def parse_binary_op(
         self, node: pycparser.c_ast.BinaryOp, program: HmmmProgram
@@ -32,9 +59,9 @@ class Compiler:
             node (pycparser.c_ast.BinaryOp) -- The node to parse
             program (HmmmProgram) -- The program to add instructions to
         """
-        result = get_temporary_register(self.global_scope)
-        left_register = get_temporary_register(self.global_scope)
-        right_register = get_temporary_register(self.global_scope)
+        result = self.current_scope.make_temporary()
+        left_register = self.current_scope.make_temporary()
+        right_register = self.current_scope.make_temporary()
 
         ### Left Side ###
         # TODO: Add Unary Op
@@ -43,7 +70,7 @@ class Compiler:
                 generate_instruction(
                     "copy",
                     left_register,
-                    get_temporary_register(self.global_scope, node.left.name),
+                    self.current_scope[node.left.name],
                 )
             )
         elif isinstance(node.left, pycparser.c_ast.Constant):
@@ -63,7 +90,7 @@ class Compiler:
                 generate_instruction(
                     "copy",
                     right_register,
-                    get_temporary_register(self.global_scope, node.right.name),
+                    self.current_scope[node.right.name],
                 )
             )
         elif isinstance(node.right, pycparser.c_ast.Constant):
@@ -112,14 +139,14 @@ class Compiler:
             program (HmmmProgram) -- The program to add instructions to
         """
 
-        result = get_temporary_register(self.global_scope)
+        result = self.current_scope.make_temporary()
 
         if isinstance(node.expr, pycparser.c_ast.ID):
             program.add_instruction(
                 generate_instruction(
                     "copy",
                     result,
-                    get_temporary_register(self.global_scope, node.expr.name),
+                    self.current_scope[node.expr.name],
                 )
             )
         elif isinstance(node.expr, pycparser.c_ast.Constant):
@@ -159,10 +186,10 @@ class Compiler:
 
         if isinstance(node, pycparser.c_ast.Decl):
             assert node.type.type.names[0] == "int", "Only ints are supported"
-            temp = get_temporary_register(self.global_scope, node.name)
+            temp = self.current_scope.declar_var(node.name)
             val = node.init
         elif isinstance(node, pycparser.c_ast.Assignment):
-            temp = get_temporary_register(self.global_scope, node.lvalue.name)
+            temp = self.current_scope[node.lvalue.name]
             val = node.rvalue
             assert node.op == "=", "Only = is supported"
         else:
@@ -181,9 +208,7 @@ class Compiler:
             )
         elif isinstance(val, pycparser.c_ast.ID):
             program.add_instruction(
-                generate_instruction(
-                    "copy", temp, get_temporary_register(self.global_scope, val.name)
-                )
+                generate_instruction("copy", temp, self.current_scope[val.name])
             )
         # Test this later
         # elif isinstance(stmt.init, pycparser.c_ast.UnaryOp):
@@ -207,7 +232,7 @@ class Compiler:
             jump_instruction (HmmmInstruction) -- The instruction to jump to the end of the condition. The jump address needs to be set later
             cleanup_instructions (List[HmmmInstruction]) -- The instructions to clean up the stack. These instructions should be added after the condition is evaluated
         """
-        left_register = get_temporary_register(self.global_scope)
+        left_register = self.current_scope.make_temporary()
 
         ### Left Side ###
         # TODO: Add Unary Op
@@ -216,7 +241,7 @@ class Compiler:
                 generate_instruction(
                     "copy",
                     left_register,
-                    get_temporary_register(self.global_scope, node.left.name),
+                    self.current_scope[node.left.name],
                 )
             )
         elif isinstance(node.left, pycparser.c_ast.Constant):
@@ -239,7 +264,7 @@ class Compiler:
                     "sub",
                     left_register,
                     left_register,
-                    get_temporary_register(self.global_scope, node.right.name),
+                    self.current_scope[node.right.name],
                 )
             )
 
@@ -431,7 +456,7 @@ class Compiler:
         program.add_instruction(
             generate_instruction(
                 "copy",
-                get_temporary_register(self.global_scope, node.next.expr.name),
+                self.current_scope[node.next.expr.name],
                 temp,
             )
         )
@@ -522,14 +547,12 @@ class Compiler:
                         program.add_instruction(
                             generate_instruction(
                                 "write",
-                                get_temporary_register(
-                                    self.global_scope, stmt.args.exprs[1].name
-                                ),
+                                self.current_scope[stmt.args.exprs[1].name],
                             )
                         )
                     # If the argument is a constant
                     elif isinstance(stmt.args.exprs[1], pycparser.c_ast.Constant):
-                        temp = get_temporary_register(self.global_scope)
+                        temp = self.current_scope.make_temporary()
                         program.add_instruction(
                             generate_instruction(
                                 "setn", temp, int(stmt.args.exprs[1].value)
@@ -550,9 +573,7 @@ class Compiler:
                     program.add_instruction(
                         generate_instruction(
                             "read",
-                            get_temporary_register(
-                                self.global_scope, stmt.args.exprs[1].expr.name
-                            ),
+                            self.current_scope[stmt.args.exprs[1].expr.name],
                         )
                     )
             elif isinstance(stmt, pycparser.c_ast.UnaryOp):
@@ -560,7 +581,7 @@ class Compiler:
                 program.add_instruction(
                     generate_instruction(
                         "copy",
-                        get_temporary_register(self.global_scope, stmt.expr.name),
+                        self.current_scope[stmt.expr.name],
                         temp,
                     )
                 )
@@ -576,25 +597,28 @@ class Compiler:
         filepath: Optional[str] = None,
         ast: Optional[pycparser.c_ast.FileAST] = None,
     ) -> HmmmProgram:
-        self.global_scope = {}
 
         if filepath is not None:
             ast = generate_ast(filepath)
         elif ast is None:
             raise ValueError("Must provide either a filepath or an AST")
 
-        program = HmmmProgram()
+        self.global_scope = Scope()
+        
+        self.current_scope = self.global_scope
+
+        main_program = HmmmProgram()
 
         for child in ast.ext:
             if isinstance(child, pycparser.c_ast.FuncDef):
                 if child.decl.name == "main":
                     if isinstance(child.body, pycparser.c_ast.Compound):
-                        self.parse_compound(child.body, program)
+                        self.parse_compound(child.body, main_program)
 
-        program.add_instruction(generate_instruction("halt"))
-        program.compile(list(self.global_scope.values()))
+        main_program.add_instruction(generate_instruction("halt"))
+        main_program.compile(self.current_scope.get_vars())
 
-        return program
+        return main_program
 
 
 def generate_ast(filepath: str) -> pycparser.c_ast.FileAST:

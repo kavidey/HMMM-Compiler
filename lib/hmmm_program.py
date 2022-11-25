@@ -45,31 +45,6 @@ class HmmmProgram:
             raise Exception("Cannot compile program twice")
 
         self.assign_registers(temporary_registers)
-
-        for instruction in self.code:
-            if isinstance(instruction, HmmmInstruction):
-                if (
-                    isinstance(instruction.arg1, TemporaryRegister)
-                    and not instruction.arg1.get_register()
-                ):
-                    raise Exception(
-                        f"Temporary register {instruction.arg1.get_temporary_id()} is not assigned"
-                    )
-                if (
-                    isinstance(instruction.arg2, TemporaryRegister)
-                    and not instruction.arg2.get_register()
-                ):
-                    raise Exception(
-                        f"Temporary register {instruction.arg2.get_temporary_id()} is not assigned"
-                    )
-                if (
-                    isinstance(instruction.arg3, TemporaryRegister)
-                    and not instruction.arg3.get_register()
-                ):
-                    raise Exception(
-                        f"Temporary register {instruction.arg3.get_temporary_id()} is not assigned"
-                    )
-        
         self.add_stack_pointer_code()
         self.assign_line_numbers()
         self.compiled = True
@@ -170,6 +145,30 @@ class HmmmProgram:
                     to_remove.append(i)
         
         self.code = [ele for idx, ele in enumerate(self.code) if idx not in to_remove]
+
+        for instruction in self.code:
+            if isinstance(instruction, HmmmInstruction):
+                if (
+                    isinstance(instruction.arg1, TemporaryRegister)
+                    and not instruction.arg1.get_register()
+                ):
+                    raise Exception(
+                        f"Temporary register {instruction.arg1.get_temporary_id()} is not assigned"
+                    )
+                if (
+                    isinstance(instruction.arg2, TemporaryRegister)
+                    and not instruction.arg2.get_register()
+                ):
+                    raise Exception(
+                        f"Temporary register {instruction.arg2.get_temporary_id()} is not assigned"
+                    )
+                if (
+                    isinstance(instruction.arg3, TemporaryRegister)
+                    and not instruction.arg3.get_register()
+                ):
+                    raise Exception(
+                        f"Temporary register {instruction.arg3.get_temporary_id()} is not assigned"
+                    )
 
 if __name__ == "__main__":
     print("Simple Adder")
