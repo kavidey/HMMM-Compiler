@@ -60,48 +60,8 @@ class Compiler:
             program (HmmmProgram) -- The program to add instructions to
         """
         result = self.current_scope.make_temporary()
-        left_register = self.current_scope.make_temporary()
-        right_register = self.current_scope.make_temporary()
-
-        ### Left Side ###
-        # TODO: Add Unary Op
-        if isinstance(node.left, pycparser.c_ast.ID):
-            program.add_instruction(
-                generate_instruction(
-                    "copy",
-                    left_register,
-                    self.current_scope[node.left.name],
-                )
-            )
-        elif isinstance(node.left, pycparser.c_ast.Constant):
-            program.add_instruction(
-                generate_instruction("setn", left_register, int(node.left.value))
-            )
-        elif isinstance(node.left, pycparser.c_ast.BinaryOp):
-            binary_op_result = self.parse_binary_op(node.left, program)
-            program.add_instruction(
-                generate_instruction("copy", left_register, binary_op_result)
-            )
-
-        ### Right Side ###
-        # TODO: Add Unary Op
-        if isinstance(node.right, pycparser.c_ast.ID):
-            program.add_instruction(
-                generate_instruction(
-                    "copy",
-                    right_register,
-                    self.current_scope[node.right.name],
-                )
-            )
-        elif isinstance(node.right, pycparser.c_ast.Constant):
-            program.add_instruction(
-                generate_instruction("setn", right_register, int(node.right.value))
-            )
-        elif isinstance(node.right, pycparser.c_ast.BinaryOp):
-            binary_op_result = self.parse_binary_op(node.right, program)
-            program.add_instruction(
-                generate_instruction("copy", right_register, binary_op_result)
-            )
+        left_register = self.parse_expression(node.left, program)
+        right_register = self.parse_expression(node.right, program)
 
         ### Operation ###
         if node.op == "+":
@@ -139,25 +99,7 @@ class Compiler:
             program (HmmmProgram) -- The program to add instructions to
         """
 
-        result = self.current_scope.make_temporary()
-
-        if isinstance(node.expr, pycparser.c_ast.ID):
-            program.add_instruction(
-                generate_instruction(
-                    "copy",
-                    result,
-                    self.current_scope[node.expr.name],
-                )
-            )
-        elif isinstance(node.expr, pycparser.c_ast.Constant):
-            program.add_instruction(
-                generate_instruction("setn", result, int(node.expr.value))
-            )
-        elif isinstance(node.expr, pycparser.c_ast.BinaryOp):
-            binary_op_result = self.parse_binary_op(node.expr, program)
-            program.add_instruction(
-                generate_instruction("copy", result, binary_op_result)
-            )
+        result = self.parse_expression(node.expr, program)
 
         if node.op == "-":
             program.add_instruction(generate_instruction("neg", result, result))
@@ -169,6 +111,39 @@ class Compiler:
         #     program.add_instruction(generate_instruction("not", HmmmRegister.R13, HmmmRegister.R13))
         else:
             raise NotImplementedError(f"Unary operation {node.op} is not implemented")
+
+        return result
+
+    def parse_expression(self, expr: object, program: HmmmProgram, result: Optional[TemporaryRegister] = None) -> TemporaryRegister:
+        """Parses an expression and adds the appropriate instructions to the given program"""
+
+        if not result:
+            result = self.current_scope.make_temporary()
+        
+        if isinstance(expr, pycparser.c_ast.ID):
+            program.add_instruction(
+                generate_instruction(
+                    "copy",
+                    result,
+                    self.current_scope[expr.name],
+                )
+            )
+        elif isinstance(expr, pycparser.c_ast.Constant):
+            program.add_instruction(
+                generate_instruction("setn", result, int(expr.value))
+            )
+        elif isinstance(expr, pycparser.c_ast.BinaryOp):
+            binary_op_result = self.parse_binary_op(expr, program)
+            program.add_instruction(
+                generate_instruction("copy", result, binary_op_result)
+            )
+        elif isinstance(expr, pycparser.c_ast.UnaryOp):
+            unary_op_result = self.parse_unary_op(expr, program)
+            program.add_instruction(
+                generate_instruction("copy", result, unary_op_result)
+            )
+        else:
+            raise NotImplementedError(f"Expression type {type(expr)} is not implemented")
 
         return result
 
@@ -195,29 +170,10 @@ class Compiler:
         else:
             raise Exception("Invalid node type")
 
-        # TODO: Add Unary Op
-        if isinstance(val, pycparser.c_ast.Constant):
-            assert (
-                -128 <= int(val.value) <= 127
-            ), "Variable initial values must be between -128 and 127"
-            program.add_instruction(generate_instruction("setn", temp, int(val.value)))
-        elif isinstance(val, pycparser.c_ast.BinaryOp):
-            binary_op_result = self.parse_binary_op(val, program)
-            program.add_instruction(
-                generate_instruction("copy", temp, binary_op_result)
-            )
-        elif isinstance(val, pycparser.c_ast.ID):
-            program.add_instruction(
-                generate_instruction("copy", temp, self.current_scope[val.name])
-            )
-        # Test this later
-        # elif isinstance(stmt.init, pycparser.c_ast.UnaryOp):
-        #     assert stmt.init.op == "-", "Only unary negation is supported"
-        #     assert isinstance(stmt.init.expr, pycparser.c_ast.Constant), "Unary negation must be applied to a constant"
-        #     assert -128 <= int(stmt.init.expr.value) <= 127, "Unary negation must be applied to a constant between -128 and 127"
-        #     program.add_instruction(generate_instruction("setn", HmmmRegister(stmt.name), -int(stmt.init.expr.value)))
-        elif val == None:
+        if val == None:
             program.add_instruction(generate_instruction("setn", temp, 0))
+        else:
+            self.parse_expression(val, program, temp)
 
     def parse_condition(
         self, node: pycparser.c_ast.BinaryOp, program: HmmmProgram
@@ -232,25 +188,7 @@ class Compiler:
             jump_instruction (HmmmInstruction) -- The instruction to jump to the end of the condition. The jump address needs to be set later
             cleanup_instructions (List[HmmmInstruction]) -- The instructions to clean up the stack. These instructions should be added after the condition is evaluated
         """
-        left_register = self.current_scope.make_temporary()
-
-        ### Left Side ###
-        # TODO: Add Unary Op
-        if isinstance(node.left, pycparser.c_ast.ID):
-            program.add_instruction(
-                generate_instruction(
-                    "copy",
-                    left_register,
-                    self.current_scope[node.left.name],
-                )
-            )
-        elif isinstance(node.left, pycparser.c_ast.Constant):
-            program.add_instruction(
-                generate_instruction("setn", left_register, int(node.left.value))
-            )
-        elif isinstance(node.left, pycparser.c_ast.BinaryOp):
-            temp = self.parse_binary_op(node.left, program)
-            program.add_instruction(generate_instruction("copy", left_register, temp))
+        left_register = self.parse_expression(node.left, program)
 
         ### Right Side ###
         # Inside each if statement we take the right side and subtract it from the left to get ready for the comparison
@@ -542,26 +480,9 @@ class Compiler:
                         len(stmt.args.exprs) == 2
                     ), 'Only printf("%d\\n", ...) is supported'
 
-                    # If the argument is a variable
-                    if isinstance(stmt.args.exprs[1], pycparser.c_ast.ID):
-                        program.add_instruction(
-                            generate_instruction(
-                                "write",
-                                self.current_scope[stmt.args.exprs[1].name],
-                            )
-                        )
-                    # If the argument is a constant
-                    elif isinstance(stmt.args.exprs[1], pycparser.c_ast.Constant):
-                        temp = self.current_scope.make_temporary()
-                        program.add_instruction(
-                            generate_instruction(
-                                "setn", temp, int(stmt.args.exprs[1].value)
-                            )
-                        )
-                        program.add_instruction(generate_instruction("write", temp))
-                    elif isinstance(stmt.args.exprs[1], pycparser.c_ast.UnaryOp):
-                        temp = self.parse_unary_op(stmt.args.exprs[1], program)
-                        program.add_instruction(generate_instruction("write", temp))
+                    temp = self.parse_expression(stmt.args.exprs[1], program)
+                    program.add_instruction(generate_instruction("write", temp))
+
                 elif stmt.name.name == "scanf":
                     assert (
                         stmt.args.exprs[0].value == '"%d"'
