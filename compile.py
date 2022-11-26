@@ -475,6 +475,11 @@ class Compiler:
             args_given == args_needed
         ), f"Function {node.name.name} takes {args_needed} arguments, but {args_given} were given"
 
+        if self.is_in_function:
+            program.add_instruction(
+                generate_instruction("pushr", self.current_scope[HmmmRegister.R14], self.current_scope[HmmmRegister.R15])
+            )
+
         # Move the arguments into the correct registers
         for i, arg in enumerate(node.args.exprs):
             arg_temp = self.parse_expression(arg, program)
@@ -494,6 +499,11 @@ class Compiler:
                 MemoryAddress(-1, self.functions[node.name.name]["jump_location"]),
             )
         )
+
+        if self.is_in_function:
+            program.add_instruction(
+                generate_instruction("popr", self.current_scope[HmmmRegister.R14], self.current_scope[HmmmRegister.R15])
+            )
 
         # Move the return value into a temporary
         return_temp = self.current_scope.make_temporary()
@@ -689,6 +699,7 @@ class Compiler:
 
         # Process the code in the main function
         self.current_scope = self.global_scope
+        self.is_in_function = False
 
         main_program = HmmmProgram()
 
@@ -712,6 +723,7 @@ class Compiler:
                 func_name = list(self.functions.keys())[instruction.arg2.hmmm_instruction.address.get_address()]
                 num_args = len(self.functions[func_name]["args"])
 
+                # Push statements need to be added before the function's arguments are moved into place, so that the arguments are not overwritten
                 calln_instruction_index = main_program.instructions.index(instruction)
                 push_instruction_index = calln_instruction_index - num_args
                 push_instruction = main_program.instructions[push_instruction_index]
