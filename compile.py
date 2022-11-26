@@ -643,6 +643,50 @@ class Compiler:
 
         return break_code, continue_code, return_code
 
+    def save_variables_during_function_call(self, program: HmmmProgram, live_in: List[TemporaryRegister] = []):
+        """Saves the values of all variables in the current scope to the stack
+
+        This should be called *after* register allocation has been completed
+
+        Args:
+            program (HmmmProgram) -- The program to add instructions to
+        """
+        program.assign_line_numbers()
+
+        liveness = program.run_liveness_analysis(self.current_scope.get_vars(), live_in=live_in)
+        add_before: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
+        add_after: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
+        for instruction in program.instructions:
+            if instruction.opcode == "calln":
+                assert isinstance(instruction.arg2, MemoryAddress)
+                assert isinstance(instruction.arg2.hmmm_instruction, HmmmInstruction)
+                
+                func_name = list(self.functions.keys())[instruction.arg2.hmmm_instruction.address.get_address()]
+                num_args = len(self.functions[func_name]["args"])
+
+                # Push statements need to be added before the function's arguments are moved into place, so that the arguments are not overwritten
+                # Additionally, pop instructions should take place before the function's return value is moved into place, so that the return value is not overwritten
+                calln_instruction_index = program.instructions.index(instruction)
+                push_instruction_index = calln_instruction_index - num_args
+                pop_instruction_index = calln_instruction_index + 1
+                push_instruction = program.instructions[push_instruction_index]
+                pop_instruction = program.instructions[pop_instruction_index]
+
+                # print(program.to_str())
+
+                live = liveness.get_node_by_name(instruction).live_in
+                # print(live, instruction.address.get_address())
+                live = set([register._register for register in live if register._register not in [HmmmRegister.R14, HmmmRegister.R15]])
+                for register in live:
+                    add_before.append((push_instruction, generate_instruction("pushr", register, self.current_scope[HmmmRegister.R15])))
+                    add_after.append((pop_instruction, generate_instruction("popr", register, self.current_scope[HmmmRegister.R15])))
+
+        for instruction, new_instruction in add_before:
+            program.add_instruction_before(new_instruction, instruction)
+        for instruction, new_instruction in add_after:
+            program.add_instruction_after(new_instruction, instruction)
+
+
     def compile(
         self,
         filepath: Optional[str] = None,
@@ -696,6 +740,9 @@ class Compiler:
             self.functions[func]["program"].assign_registers(
                 self.current_scope.get_vars()
             )
+            self.save_variables_during_function_call(self.functions[func]["program"], live_in=[self.current_scope[INDEX_TO_REGISTER[i]] for i in range(len(self.functions[func]["args"]))])
+
+        # print(self.functions["quadruple_func"]["program"].to_str())
 
         # Process the code in the main function
         self.current_scope = self.global_scope
@@ -710,34 +757,7 @@ class Compiler:
                         self.parse_compound(child.body, main_program, is_main=True)
 
         main_program.assign_registers(self.current_scope.get_vars())
-
-        # Add pushes and pops around all of the functions
-        liveness = main_program.run_liveness_analysis(self.current_scope.get_vars())
-        add_before: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
-        add_after: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
-        for instruction in main_program.instructions:
-            if instruction.opcode == "calln":
-                assert isinstance(instruction.arg2, MemoryAddress)
-                assert isinstance(instruction.arg2.hmmm_instruction, HmmmInstruction)
-                
-                func_name = list(self.functions.keys())[instruction.arg2.hmmm_instruction.address.get_address()]
-                num_args = len(self.functions[func_name]["args"])
-
-                # Push statements need to be added before the function's arguments are moved into place, so that the arguments are not overwritten
-                calln_instruction_index = main_program.instructions.index(instruction)
-                push_instruction_index = calln_instruction_index - num_args
-                push_instruction = main_program.instructions[push_instruction_index]
-
-                live = liveness.get_node_by_name(instruction).live_in
-                live = set([register._register for register in live])
-                for register in live:
-                    add_before.append((push_instruction, generate_instruction("pushr", register, self.current_scope[HmmmRegister.R15])))
-                    add_after.append((instruction, generate_instruction("popr", register, self.current_scope[HmmmRegister.R15])))
-
-        for instruction, new_instruction in add_before:
-            main_program.add_instruction_before(new_instruction, instruction)
-        for instruction, new_instruction in add_after:
-            main_program.add_instruction_after(new_instruction, instruction)
+        self.save_variables_during_function_call(main_program)
 
         # Add pre-compiled functions to the main program
         for func in self.functions:

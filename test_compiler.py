@@ -141,6 +141,15 @@ class TestDoubleFunc(TestProgram):
     def testB(self):
         assert self.run_file(self.FILENAME, [17]) == [34, 6]
 
+class TestQuadrupleFunc(TestProgram):
+    FILENAME = "quadruple_func.c"
+
+    def testA(self):
+        assert self.run_file(self.FILENAME, [-3]) == [-12]
+
+    def testB(self):
+        assert self.run_file(self.FILENAME, [4]) == [16]
+
 
 if __name__ == "__main__":
     unittest.main()

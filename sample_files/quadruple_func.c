@@ -5,7 +5,8 @@ int double_func(int x) {
 }
 
 int quadruple_func(int x) {
-    return double_func(double_func(x));
+    int a = double_func(x);
+    return double_func(a);
 }
 
 // Test functions calling other functions

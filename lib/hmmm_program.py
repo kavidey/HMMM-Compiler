@@ -80,7 +80,17 @@ class HmmmProgram:
             output.append(instruction.to_string(include_unassigned_registers=(not self.compiled)))
         return output
 
-    def run_liveness_analysis(self, temporary_registers: List[TemporaryRegister]):
+    def run_liveness_analysis(self, temporary_registers: List[TemporaryRegister], live_in: List[TemporaryRegister] = []):
+        """Run liveness analysis on the program
+        
+        Args:
+            temporary_registers (List[TemporaryRegister]): List of temporary registers used in the program
+            live_in (List[TemporaryRegister], optional): List of temporary registers that are live in to the program. Defaults to [].
+
+        Returns:
+            LivenessGraph: Directed control flow graph with liveness information
+        """
+
          # This makes sure lines that do the identical thing are treated separately because they will have different addresses
         self.assign_line_numbers()
 
@@ -104,6 +114,9 @@ class HmmmProgram:
             instruction = self.instructions[i]
             if isinstance(instruction, HmmmInstruction):
                 defines, uses = instruction.get_def_use(constant_registers)
+
+                if i == 0:
+                    defines += live_in
 
                 control_flow_graph.add_node(instruction, defines=defines, uses=uses, start_node=True if i == 0 else False)  # type: ignore
 

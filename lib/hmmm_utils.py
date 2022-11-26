@@ -184,11 +184,19 @@ class HmmmInstruction:
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
             assert isinstance(self.arg2, (int, MemoryAddress))
             return [self.arg1, constatnt_registers["r13"]], []
-        elif self.opcode in ["pushr", "storer"]:
+        elif self.opcode == "pushr":
+            assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
+            assert isinstance(self.arg2, (HmmmRegister, TemporaryRegister))
+            return [], [self.arg1]
+        elif self.opcode == "popr":
+            assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
+            assert isinstance(self.arg2, (HmmmRegister, TemporaryRegister))
+            return [self.arg1], []
+        elif self.opcode == "storer":
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
             assert isinstance(self.arg2, (HmmmRegister, TemporaryRegister))
             return [], [self.arg1, self.arg2]
-        elif self.opcode in ["popr", "loadr"]:
+        elif self.opcode == "loadr":
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
             assert isinstance(self.arg2, (HmmmRegister, TemporaryRegister))
             return [self.arg1], [self.arg2]
