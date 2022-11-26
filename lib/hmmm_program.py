@@ -125,7 +125,7 @@ class HmmmProgram:
             instruction = self.instructions[i]
             if isinstance(instruction, HmmmInstruction):
                 control_flow_graph.add_edge(instruction, self.instructions[i + 1])  # type: ignore
-                if instruction.opcode in ["jumpn", "jumpr"]:
+                if instruction.opcode == "jumpn":
                     control_flow_graph.add_edge(instruction, self.instructions[instruction.arg1.get_address()])  # type: ignore
                 elif instruction.opcode in [
                     "jeqzn",
