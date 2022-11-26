@@ -55,6 +55,7 @@ class Function(TypedDict):
     program: HmmmProgram
     args: List
     body: pycparser.c_ast.Compound
+    jump_location: HmmmInstruction
 
 
 class Compiler:
@@ -490,7 +491,7 @@ class Compiler:
             generate_instruction(
                 "calln",
                 self.current_scope[HmmmRegister.R14],
-                MemoryAddress(-1, self.functions[node.name.name]["program"][0]),
+                MemoryAddress(-1, self.functions[node.name.name]["jump_location"]),
             )
         )
 
@@ -654,13 +655,16 @@ class Compiler:
         for func in ast.ext:
             if isinstance(func, pycparser.c_ast.FuncDef) and func.decl.name != "main":
                 func_program = HmmmProgram()
-                func_program.add_instruction(generate_instruction("nop"))
-                # func_program.add_comment(f"Function {func.decl.name}")
+
+                # This is a janky way to tell which function is which later on
+                for i in range(len(self.functions)+1):
+                    func_program.add_instruction(generate_instruction("nop"))
 
                 self.functions[func.decl.name] = {
                     "program": func_program,
                     "args": func.decl.type.args.params,
                     "body": func.body,
+                    "jump_location": func_program.instructions[len(self.functions)],
                 }
 
         for func in self.functions:
@@ -696,11 +700,35 @@ class Compiler:
 
         main_program.assign_registers(self.current_scope.get_vars())
 
+        # Add pushes and pops around all of the functions
+        liveness = main_program.run_liveness_analysis(self.current_scope.get_vars())
+        add_before: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
+        add_after: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
+        for instruction in main_program.instructions:
+            if instruction.opcode == "calln":
+                assert isinstance(instruction.arg2, MemoryAddress)
+                assert isinstance(instruction.arg2.hmmm_instruction, HmmmInstruction)
+                
+                func_name = list(self.functions.keys())[instruction.arg2.hmmm_instruction.address.get_address()]
+                print(func_name)
+                print(liveness.get_node_by_name(instruction).live_in)
+                for register in liveness.get_node_by_name(instruction).live_in:
+                    add_before.append((instruction, generate_instruction("pushr", register._register, self.current_scope[HmmmRegister.R15])))
+                    add_after.append((instruction, generate_instruction("popr", register._register, self.current_scope[HmmmRegister.R15])))
+
+        for instruction, new_instruction in add_before:
+            main_program.add_instruction_before(new_instruction, instruction)
+        for instruction, new_instruction in add_after:
+            main_program.add_instruction_after(new_instruction, instruction)
+
+        print(main_program)
+        print()
+
         # Add pre-compiled functions to the main program
         for func in self.functions:
             main_program.add_function(self.functions[func]["program"])
 
-        main_program.compile(self.current_scope.get_vars())
+        main_program.compile()
 
         return main_program
 

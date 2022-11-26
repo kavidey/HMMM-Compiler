@@ -90,7 +90,7 @@ def get_temporary_register(
         TemporaryRegister -- The temporary register for the given temporary id
     """
     if not temporary_id:
-        temporary_id = f"t{len(temporary_register_dict)}"
+        temporary_id = f"{len(temporary_register_dict)}"
         if temporary_id in temporary_register_dict:
             raise ValueError(f"Temporary id {temporary_id} already exists")
     if temporary_id not in temporary_register_dict:
@@ -107,13 +107,19 @@ class HmmmInstruction:
     arg2: Optional[Union[HmmmRegister, TemporaryRegister, int, MemoryAddress]]
     arg3: Optional[Union[HmmmRegister, TemporaryRegister]]
 
-    def format_arg(self, arg):
+    def format_arg(self, arg, include_unassigned_registers: bool = False) -> str:
         if arg is None:
             return ""
         elif isinstance(arg, HmmmRegister):
             return arg.value
         elif isinstance(arg, TemporaryRegister):
-            return arg.get_register().value
+            if include_unassigned_registers:
+                if arg._register:
+                    return arg._register.value
+                else:
+                    return f"t{arg._temporary_id}"
+            else:
+                return arg.get_register().value
         elif isinstance(arg, MemoryAddress):
             return f"{arg.get_address()}"
         elif isinstance(arg, int):
@@ -121,11 +127,11 @@ class HmmmInstruction:
         else:
             raise Exception(f"Invalid argument type: {arg}")
 
-    def __str__(self):
-        return f"{self.address.get_address()} {self.opcode} {self.format_arg(self.arg1)} {self.format_arg(self.arg2)} {self.format_arg(self.arg3)}"
+    def to_string(self, include_unassigned_registers: bool = False) -> str:
+        return f"{self.address.get_address()} {self.opcode} {self.format_arg(self.arg1, include_unassigned_registers)} {self.format_arg(self.arg2, include_unassigned_registers)} {self.format_arg(self.arg3, include_unassigned_registers)}"
 
     def get_def_use(
-        self,
+        self, constatnt_registers: dict[str, TemporaryRegister]
     ) -> Tuple[
         List[Union[TemporaryRegister, HmmmRegister]],
         List[Union[TemporaryRegister, HmmmRegister]],
@@ -170,10 +176,14 @@ class HmmmInstruction:
         elif self.opcode == "jumpr":
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
             return [], [self.arg1]
-        elif self.opcode in ["jeqzn", "jnezn", "jltzn", "jgtzn", "calln"]:
+        elif self.opcode in ["jeqzn", "jnezn", "jltzn", "jgtzn"]:
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
             assert isinstance(self.arg2, (int, MemoryAddress))
             return [], [self.arg1]
+        elif self.opcode == "calln":
+            assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
+            assert isinstance(self.arg2, (int, MemoryAddress))
+            return [self.arg1, constatnt_registers["r13"]], []
         elif self.opcode in ["pushr", "storer"]:
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
             assert isinstance(self.arg2, (HmmmRegister, TemporaryRegister))
@@ -249,9 +259,12 @@ def generate_instruction(
         assert arg3 == None
     elif opcode == "pushr" or opcode == "popr":
         assert type(arg1) == HmmmRegister or type(arg1) == TemporaryRegister
-        assert arg2 == None
+        assert type(arg2) == HmmmRegister or type(arg2) == TemporaryRegister
         assert arg3 == None
-        arg2 = HmmmRegister.R15
+        if isinstance(arg2, TemporaryRegister):
+            assert arg2.get_register() == HmmmRegister.R15
+        if isinstance(arg2, HmmmRegister):
+            assert arg2 == HmmmRegister.R15
     elif opcode == "loadn" or opcode == "storen":
         assert type(arg1) == HmmmRegister or type(arg1) == TemporaryRegister
         assert type(arg2) == MemoryAddress

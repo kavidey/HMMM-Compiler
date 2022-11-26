@@ -13,24 +13,33 @@ from lib.hmmm_utils import (
 
 class HmmmProgram:
     def __init__(self):
-        self.code: List[Union[HmmmInstruction, str]] = []
+        self.instructions: List[HmmmInstruction] = []
         self.compiled = False
 
     def add_instruction(self, instruction: HmmmInstruction):
         if self.compiled:
             raise Exception("Cannot add instruction to compiled program")
-        self.code.append(instruction)
+        self.instructions.append(instruction)
 
-    def add_instructions(self, instructions: List[Union[HmmmInstruction, str]]):
+    def add_instruction_before(self, instruction: HmmmInstruction, before: HmmmInstruction):
         if self.compiled:
             raise Exception("Cannot add instruction to compiled program")
-        self.code.extend(instructions)
+        self.assign_line_numbers()
+        self.instructions.insert(self.instructions.index(before), instruction)
+    
+    def add_instruction_after(self, instruction: HmmmInstruction, after: HmmmInstruction):
+        if self.compiled:
+            raise Exception("Cannot add instruction to compiled program")
+        self.assign_line_numbers()
+        self.instructions.insert(self.instructions.index(after) + 1, instruction)
+
+    def add_instructions(self, instructions: List[HmmmInstruction]):
+        if self.compiled:
+            raise Exception("Cannot add instruction to compiled program")
+        self.instructions.extend(instructions)
 
     def add_function(self, function: "HmmmProgram"):
-        self.add_instructions(function.code)
-
-    def add_comment(self, comment: str):
-        self.code.append(f"# {comment}")
+        self.add_instructions(function.instructions)
 
     def add_stack_pointer_code(self):
         """
@@ -39,11 +48,11 @@ class HmmmProgram:
         """
         if self.compiled:
             raise Exception("Cannot add instruction to compiled program")
-        self.code.insert(
-            0, generate_instruction("setn", HmmmRegister.R15, len(self.code) + 1)
+        self.instructions.insert(
+            0, generate_instruction("setn", HmmmRegister.R15, len(self.instructions) + 1)
         )
 
-    def compile(self, temporary_registers: List[TemporaryRegister]):
+    def compile(self):
         if self.compiled:
             raise Exception("Cannot compile program twice")
 
@@ -52,32 +61,27 @@ class HmmmProgram:
         self.compiled = True
 
     def assign_line_numbers(self):
-        for i, instruction in enumerate(self.code):
+        for i, instruction in enumerate(self.instructions):
             if isinstance(instruction, HmmmInstruction):
                 instruction.address.address = i
 
     def __getitem__(self, index: int):
-        return self.code[index]
+        return self.instructions[index]
 
     def __str__(self):
-        return "\n".join([str(instruction) for instruction in self.code])
+        return "\n".join(self.to_array())
 
     def to_str(self):
         return str(self)
 
     def to_array(self):
-        return [str(instruction) for instruction in self.code]
+        output = []
+        for instruction in self.instructions:
+            output.append(instruction.to_string(include_unassigned_registers=(not self.compiled)))
+        return output
 
-    def assign_registers(self, temporary_registers: List[TemporaryRegister]):
-        """
-        Assign registers to temporary registers.
-
-        This function should only be called once, after the entire program has been generated.
-        """
-        if self.compiled:
-            raise Exception("Cannot assign registers to compiled program")
-
-        # This makes sure lines that do the identical thing are treated separately because they will have different addresses
+    def run_liveness_analysis(self, temporary_registers: List[TemporaryRegister]):
+         # This makes sure lines that do the identical thing are treated separately because they will have different addresses
         self.assign_line_numbers()
 
         control_flow_graph = DirectedGraph()
@@ -87,29 +91,54 @@ class HmmmProgram:
             control_flow_graph.add_temporary(register)
 
         # Add instructions to the graph
-        for i in range(len(self.code)):
-            instruction = self.code[i]
+        constant_registers: dict[str, TemporaryRegister] = {}
+        for register in temporary_registers:
+            if register._register == HmmmRegister.R13:
+                constant_registers["r13"] = register
+            elif register._register == HmmmRegister.R14:
+                constant_registers["r14"] = register
+            elif register._register == HmmmRegister.R15:
+                constant_registers["r15"] = register
+
+        for i in range(len(self.instructions)):
+            instruction = self.instructions[i]
             if isinstance(instruction, HmmmInstruction):
-                defines, uses = instruction.get_def_use()
+                defines, uses = instruction.get_def_use(constant_registers)
 
                 control_flow_graph.add_node(instruction, defines=defines, uses=uses, start_node=True if i == 0 else False)  # type: ignore
 
         # Add edges to the graph
-        for i in range(len(self.code) - 1):
-            instruction = self.code[i]
+        for i in range(len(self.instructions) - 1):
+            instruction = self.instructions[i]
             if isinstance(instruction, HmmmInstruction):
-                control_flow_graph.add_edge(instruction, self.code[i + 1])  # type: ignore
+                control_flow_graph.add_edge(instruction, self.instructions[i + 1])  # type: ignore
                 if instruction.opcode in ["jumpn", "jumpr"]:
-                    control_flow_graph.add_edge(instruction, self.code[instruction.arg1.get_address()])  # type: ignore
+                    control_flow_graph.add_edge(instruction, self.instructions[instruction.arg1.get_address()])  # type: ignore
                 elif instruction.opcode in [
                     "jeqzn",
                     "jnezn",
                     "jgtzn",
                     "jltzn",
-                    "calln",
                 ]:
-                    control_flow_graph.add_edge(instruction, self.code[instruction.arg2.get_address()])  # type: ignore
+                    control_flow_graph.add_edge(instruction, self.instructions[instruction.arg2.get_address()])  # type: ignore
         
+        # Run liveness analysis
+        control_flow_graph.calculate_liveness()
+
+        return control_flow_graph
+
+    def assign_registers(self, temporary_registers: List[TemporaryRegister]):
+        """
+        Assign registers to temporary registers.
+
+        This function should only be called once, after the entire program has been generated.
+        """
+        if self.compiled:
+            raise Exception("Cannot assign registers to compiled program")
+        
+        # Run liveness analysis
+        control_flow_graph = self.run_liveness_analysis(temporary_registers)
+
         # Assign registers
         interference_graph = control_flow_graph.generate_interference_graph(
             [
@@ -136,8 +165,8 @@ class HmmmProgram:
             colored_temporary.name.set_register(colored_temporary.color)
 
         to_remove = []
-        for i in range(len(self.code)):
-            instruction = self.code[i]
+        for i in range(len(self.instructions)):
+            instruction = self.instructions[i]
             assert isinstance(instruction, HmmmInstruction)
             if instruction.opcode == "copy":
                 assert isinstance(instruction.arg1, TemporaryRegister)
@@ -146,9 +175,9 @@ class HmmmProgram:
                 if instruction.arg1.get_register() == instruction.arg2.get_register():
                     to_remove.append(i)
         
-        self.code = [ele for idx, ele in enumerate(self.code) if idx not in to_remove]
+        self.instructions = [ele for idx, ele in enumerate(self.instructions) if idx not in to_remove]
 
-        for instruction in self.code:
+        for instruction in self.instructions:
             if isinstance(instruction, HmmmInstruction):
                 if (
                     isinstance(instruction.arg1, TemporaryRegister)
