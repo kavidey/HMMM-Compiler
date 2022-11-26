@@ -672,11 +672,10 @@ class Compiler:
                 push_instruction = program.instructions[push_instruction_index]
                 pop_instruction = program.instructions[pop_instruction_index]
 
-                # print(program.to_str())
 
                 live = liveness.get_node_by_name(instruction).live_in
                 # print(live, instruction.address.get_address())
-                live = set([register._register for register in live if register._register not in [HmmmRegister.R14, HmmmRegister.R15]])
+                live = set([register for register in live if register._register not in [HmmmRegister.R14, HmmmRegister.R15]])
                 for register in live:
                     add_before.append((push_instruction, generate_instruction("pushr", register, self.current_scope[HmmmRegister.R15])))
                     add_after.append((pop_instruction, generate_instruction("popr", register, self.current_scope[HmmmRegister.R15])))
@@ -737,12 +736,10 @@ class Compiler:
                 self.functions[func]["body"],
                 self.functions[func]["program"],
             )
+            self.save_variables_during_function_call(self.functions[func]["program"], live_in=[self.current_scope[INDEX_TO_REGISTER[i]] for i in range(len(self.functions[func]["args"]))])
             self.functions[func]["program"].assign_registers(
                 self.current_scope.get_vars()
             )
-            self.save_variables_during_function_call(self.functions[func]["program"], live_in=[self.current_scope[INDEX_TO_REGISTER[i]] for i in range(len(self.functions[func]["args"]))])
-
-        # print(self.functions["quadruple_func"]["program"].to_str())
 
         # Process the code in the main function
         self.current_scope = self.global_scope
@@ -756,8 +753,8 @@ class Compiler:
                     if isinstance(child.body, pycparser.c_ast.Compound):
                         self.parse_compound(child.body, main_program, is_main=True)
 
-        main_program.assign_registers(self.current_scope.get_vars())
         self.save_variables_during_function_call(main_program)
+        main_program.assign_registers(self.current_scope.get_vars())
 
         # Add pre-compiled functions to the main program
         for func in self.functions:

@@ -145,10 +145,10 @@ class TestQuadrupleFunc(TestProgram):
     FILENAME = "quadruple_func.c"
 
     def testA(self):
-        assert self.run_file(self.FILENAME, [-3]) == [-12]
+        assert self.run_file(self.FILENAME, [-3]) == [-12,-12]
 
     def testB(self):
-        assert self.run_file(self.FILENAME, [4]) == [16]
+        assert self.run_file(self.FILENAME, [4]) == [16,16]
 
 
 if __name__ == "__main__":

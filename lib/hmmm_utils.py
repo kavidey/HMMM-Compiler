@@ -90,7 +90,7 @@ def get_temporary_register(
         TemporaryRegister -- The temporary register for the given temporary id
     """
     if not temporary_id:
-        temporary_id = f"{len(temporary_register_dict)}"
+        temporary_id = f"t{len(temporary_register_dict)}"
         if temporary_id in temporary_register_dict:
             raise ValueError(f"Temporary id {temporary_id} already exists")
     if temporary_id not in temporary_register_dict:
@@ -117,7 +117,7 @@ class HmmmInstruction:
                 if arg._register:
                     return arg._register.value
                 else:
-                    return f"t{arg._temporary_id}"
+                    return f"{arg._temporary_id}"
             else:
                 return arg.get_register().value
         elif isinstance(arg, MemoryAddress):
