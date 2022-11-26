@@ -573,11 +573,11 @@ class Compiler:
                 ] + list(self.functions.keys()), "Function not defined"
                 if stmt.name.name == "printf":
                     assert (
-                        stmt.args.exprs[0].value == '"%d"'
-                    ), 'Only printf("%d", var_to_print) is supported. First input must be "%d"'
+                        stmt.args.exprs[0].value == '"%d\\n"'
+                    ), 'Only printf("%d\\n", var_to_print) is supported. First input must be "%d\\n"'
                     assert (
                         len(stmt.args.exprs) == 2
-                    ), 'Only printf("%d", var_to_print) is supported. Must have exactly 2 inputs'
+                    ), 'Only printf("%d\\n", var_to_print) is supported. Must have exactly 2 inputs'
 
                     temp = self.parse_expression(stmt.args.exprs[1], program)
                     program.add_instruction(generate_instruction("write", temp))
@@ -655,6 +655,7 @@ class Compiler:
             if isinstance(func, pycparser.c_ast.FuncDef) and func.decl.name != "main":
                 func_program = HmmmProgram()
                 func_program.add_instruction(generate_instruction("nop"))
+                # func_program.add_comment(f"Function {func.decl.name}")
 
                 self.functions[func.decl.name] = {
                     "program": func_program,
@@ -692,7 +693,7 @@ class Compiler:
                 if child.decl.name == "main":
                     if isinstance(child.body, pycparser.c_ast.Compound):
                         self.parse_compound(child.body, main_program, is_main=True)
-                        
+
         main_program.assign_registers(self.current_scope.get_vars())
 
         # Add pre-compiled functions to the main program

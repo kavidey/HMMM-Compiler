@@ -184,7 +184,7 @@ class DirectedGraph:
         interference_graph = InterferenceGraph(registers)
 
         for temporary in self.temporaries:
-            interference_graph.add_node(temporary)
+            interference_graph.add_node(temporary, temporary._register)
 
         for edge in self.edges:
             for temporary1, temporary2 in itertools.combinations(
@@ -669,6 +669,17 @@ class InterferenceGraph(Graph):
         node.move_list_removed = node.move_list
         node.move_list = []
 
+    def all_nodes_precolored(self) -> bool:
+        """Checks if all nodes in the graph are precolored
+
+        Returns:
+            bool -- True if all nodes are precolored, False otherwise
+        """
+        for node in self.nodes.values():
+            if node.color == None:
+                return False
+        return True
+
     def assign_registers(self) -> List[Node]:
         """Assigns registers to the nodes in the graph
 
@@ -684,7 +695,7 @@ class InterferenceGraph(Graph):
             self.coalesce(len(self.nodes))
 
             # We should move on from simplification and coalescing if either:
-            # the only nodes remaning are move-related or of significant degree
+            # the only nodes remaning are move-related or of significant degree or all nodes are precolored
             can_simplify_and_coalesce = False
             for node in self.nodes.values():
                 if (
@@ -709,7 +720,10 @@ class InterferenceGraph(Graph):
                 if len(move_related_nodes) > 0:
                     self.freeze(move_related_nodes[0].name)
 
-        if len(self.nodes) > 0:
+            if self.all_nodes_precolored():
+                break
+
+        if len(self.nodes) > 0 and not self.all_nodes_precolored():
             raise Exception(
                 "Could not assign registers. Spilling is not implemented yet."
             )

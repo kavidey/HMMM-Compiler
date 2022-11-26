@@ -13,8 +13,8 @@ int main()
     int b = double_func(a);
     int c = double_func(3);
 
-    printf("%d", b);
-    printf("%d", c);
+    printf("%d\n", b);
+    printf("%d\n", c);
 
     return 0;
 }
