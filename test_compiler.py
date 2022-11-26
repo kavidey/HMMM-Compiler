@@ -132,7 +132,7 @@ class TestPrimesBetween(TestProgram):
     def testB(self):
         assert self.run_file(self.FILENAME, [82, 98]) == [83, 89, 97]
 
-class TestPrimesBetween(TestProgram):
+class TestDoubleFunc(TestProgram):
     FILENAME = "double_func.c"
 
     def testA(self):
