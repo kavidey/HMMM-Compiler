@@ -21,10 +21,13 @@ class HmmmProgram:
             raise Exception("Cannot add instruction to compiled program")
         self.code.append(instruction)
 
-    def add_instructions(self, instructions: List[HmmmInstruction]):
+    def add_instructions(self, instructions: List[Union[HmmmInstruction, str]]):
         if self.compiled:
             raise Exception("Cannot add instruction to compiled program")
         self.code.extend(instructions)
+
+    def add_function(self, function: "HmmmProgram"):
+        self.add_instructions(function.code)
 
     def add_comment(self, comment: str):
         self.code.append(f"# {comment}")
@@ -44,7 +47,6 @@ class HmmmProgram:
         if self.compiled:
             raise Exception("Cannot compile program twice")
 
-        self.assign_registers(temporary_registers)
         self.add_stack_pointer_code()
         self.assign_line_numbers()
         self.compiled = True

@@ -1,7 +1,7 @@
 import argparse
 import copy
 import re
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, TypedDict
 
 import pycparser
 from pycparser import parse_file
@@ -14,6 +14,7 @@ from lib.hmmm_utils import (
     HmmmRegister,
     HmmmInstruction,
     MemoryAddress,
+    INDEX_TO_REGISTER,
 )
 
 
@@ -21,6 +22,9 @@ class Scope:
     def __init__(self, parent_scope: "Optional[Scope]" = None) -> None:
         self.scope: dict[object, TemporaryRegister] = {}
         self.parent_scope = parent_scope
+
+        for register in HmmmRegister:
+            self.scope[register] = TemporaryRegister(register, register)
 
     def __getitem__(self, key: object) -> TemporaryRegister:
         if key in self.scope:
@@ -43,10 +47,20 @@ class Scope:
     def get_vars(self) -> List[TemporaryRegister]:
         return list(self.scope.values())
 
+    def __repr__(self) -> str:
+        return str(self.scope)
+
+
+class Function(TypedDict):
+    program: HmmmProgram
+    args: List
+    body: pycparser.c_ast.Compound
+
 
 class Compiler:
     def __init__(self) -> None:
-        pass
+        self.is_in_loop = False
+        self.is_in_function = False
 
     def parse_binary_op(
         self, node: pycparser.c_ast.BinaryOp, program: HmmmProgram
@@ -114,12 +128,17 @@ class Compiler:
 
         return result
 
-    def parse_expression(self, expr: object, program: HmmmProgram, result: Optional[TemporaryRegister] = None) -> TemporaryRegister:
+    def parse_expression(
+        self,
+        expr: object,
+        program: HmmmProgram,
+        result: Optional[TemporaryRegister] = None,
+    ) -> TemporaryRegister:
         """Parses an expression and adds the appropriate instructions to the given program"""
 
         if not result:
             result = self.current_scope.make_temporary()
-        
+
         if isinstance(expr, pycparser.c_ast.ID):
             program.add_instruction(
                 generate_instruction(
@@ -142,8 +161,15 @@ class Compiler:
             program.add_instruction(
                 generate_instruction("copy", result, unary_op_result)
             )
+        elif isinstance(expr, pycparser.c_ast.FuncCall):
+            func_call_result = self.parse_func_call(expr, program)
+            program.add_instruction(
+                generate_instruction("copy", result, func_call_result)
+            )
         else:
-            raise NotImplementedError(f"Expression type {type(expr)} is not implemented")
+            raise NotImplementedError(
+                f"Expression type {type(expr)} is not implemented"
+            )
 
         return result
 
@@ -232,18 +258,20 @@ class Compiler:
         return jump_instruction
 
     def parse_if(
-        self, node: pycparser.c_ast.If, program: HmmmProgram, is_in_loop=False
-    ) -> Tuple[List[HmmmInstruction], List[HmmmInstruction]]:
+        self,
+        node: pycparser.c_ast.If,
+        program: HmmmProgram,
+    ) -> Tuple[List[HmmmInstruction], List[HmmmInstruction], List[HmmmInstruction]]:
         """Parses an if statement and adds the appropriate instructions to the given program
 
         Args:
             node (pycparser.c_ast.If) -- The node to parse
             program (HmmmProgram) -- The program to add instructions to
-            is_in_loop (bool) -- Whether or not the if statement is in a loop
 
         Returns:
             break_code (List[HmmmInstruction]) -- The instructions to execute when a break statement is encountered. The user needs to set the jump address of these manually and passed up to any outer loops
             continue_code (List[HmmmInstruction]) -- The instructions to execute when a continue statement is encountered. The user needs to set the jump address of these manually and passed up to any outer loops
+            return_code (List[HmmmInstruction]) -- The instructions to execute when a return statement is encountered. The user needs to set the jump address of these manually and passed up to any outer loops
         """
 
         assert isinstance(
@@ -266,8 +294,8 @@ class Compiler:
         nop = generate_instruction("nop")
         program.add_instruction(nop)
         jump_iftrue.arg2 = MemoryAddress(-1, nop)
-        break_statements, continue_statements = self.parse_compound(
-            node.iftrue, program, is_in_loop
+        break_statements, continue_statements, return_statements = self.parse_compound(
+            node.iftrue, program
         )
 
         jump_end = None
@@ -279,7 +307,7 @@ class Compiler:
             program.add_instruction(beginning_of_iffalse)
             jump_iffalse.arg1 = MemoryAddress(-1, beginning_of_iffalse)
             if isinstance(node.iffalse, pycparser.c_ast.Compound):
-                self.parse_compound(node.iffalse, program, is_in_loop)
+                self.parse_compound(node.iffalse, program)
             elif isinstance(node.iffalse, pycparser.c_ast.If):
                 self.parse_if(node.iffalse, program)
         else:
@@ -289,14 +317,19 @@ class Compiler:
         program.add_instruction(end_of_if_block)
         jump_end.arg1 = MemoryAddress(-1, end_of_if_block)
 
-        return break_statements, continue_statements
+        return break_statements, continue_statements, return_statements
 
-    def parse_while(self, node: pycparser.c_ast.While, program: HmmmProgram) -> None:
+    def parse_while(
+        self, node: pycparser.c_ast.While, program: HmmmProgram
+    ) -> List[HmmmInstruction]:
         """Parses a while loop and adds the appropriate instructions to the given program
 
         Args:
             node (pycparser.c_ast.While) -- The node to parse
             program (HmmmProgram) -- The program to add instructions to
+
+        Returns:
+            return_statements (List[HmmmInstruction]) -- The instructions to execute when a return statement is encountered. The user needs to set the jump address of these manually and passed up to any outer loops
         """
 
         assert isinstance(
@@ -323,9 +356,12 @@ class Compiler:
         program.add_instruction(beginning_of_while)
         jump_if_not_done.arg2 = MemoryAddress(-1, beginning_of_while)
 
-        break_statements, continue_statements = self.parse_compound(
-            node.stmt, program, is_in_loop=True
+        already_in_loop = self.is_in_loop
+        self.is_in_loop = True
+        break_statements, continue_statements, return_statements = self.parse_compound(
+            node.stmt, program
         )
+        self.is_in_loop = already_in_loop
 
         program.add_instruction(
             generate_instruction("jumpn", MemoryAddress(-1, beginning_of_while_check))
@@ -341,12 +377,19 @@ class Compiler:
         for continue_statement in continue_statements:
             continue_statement.arg1 = MemoryAddress(-1, beginning_of_while_check)
 
-    def parse_for(self, node: pycparser.c_ast.While, program: HmmmProgram) -> None:
+        return return_statements
+
+    def parse_for(
+        self, node: pycparser.c_ast.While, program: HmmmProgram
+    ) -> List[HmmmInstruction]:
         """Parses a for loop and adds the appropriate instructions to the given program
 
         Args:
             node (pycparser.c_ast.While) -- The node to parse
             program (HmmmProgram) -- The program to add instructions to
+
+        Returns:
+            return_statements (List[HmmmInstruction]) -- The instructions to execute when a return statement is encountered. The user needs to set the jump address of these manually and passed up to any outer loops
         """
 
         assert isinstance(
@@ -386,9 +429,12 @@ class Compiler:
         program.add_instruction(beginning_of_for)
         jump_if_not_done.arg2 = MemoryAddress(-1, beginning_of_for)
 
-        break_statements, continue_statements = self.parse_compound(
-            node.stmt, program, is_in_loop=True
+        already_in_loop = self.is_in_loop
+        self.is_in_loop = True
+        break_statements, continue_statements, return_statements = self.parse_compound(
+            node.stmt, program
         )
+        self.is_in_loop = already_in_loop
 
         temp = self.parse_unary_op(node.next, program)
         program.add_instruction(
@@ -413,23 +459,73 @@ class Compiler:
         for continue_statement in continue_statements:
             continue_statement.arg1 = MemoryAddress(-1, beginning_of_for_check)
 
+        return return_statements
+
+    def parse_func_call(
+        self, node: pycparser.c_ast.FuncCall, program: HmmmProgram
+    ) -> TemporaryRegister:
+        assert (
+            node.name.name in self.functions
+        ), f"Function {node.name.name} not defined"
+
+        args_given = len(node.args.exprs)
+        args_needed = len(self.functions[node.name.name]["args"])
+        assert (
+            args_given == args_needed
+        ), f"Function {node.name.name} takes {args_needed} arguments, but {args_given} were given"
+
+        # Move the arguments into the correct registers
+        for i, arg in enumerate(node.args.exprs):
+            arg_temp = self.parse_expression(arg, program)
+            program.add_instruction(
+                generate_instruction(
+                    "copy",
+                    self.current_scope[INDEX_TO_REGISTER[i]],
+                    arg_temp,
+                )
+            )
+
+        # Call the function
+        program.add_instruction(
+            generate_instruction(
+                "calln",
+                self.current_scope[HmmmRegister.R14],
+                MemoryAddress(-1, self.functions[node.name.name]["program"][0]),
+            )
+        )
+
+        # Move the return value into a temporary
+        return_temp = self.current_scope.make_temporary()
+        program.add_instruction(
+            generate_instruction(
+                "copy", return_temp, self.current_scope[HmmmRegister.R13]
+            )
+        )
+
+        return return_temp
+
     def parse_compound(
-        self, node: pycparser.c_ast.Compound, program: HmmmProgram, is_in_loop=False
-    ) -> Tuple[List[HmmmInstruction], List[HmmmInstruction]]:
+        self,
+        node: pycparser.c_ast.Compound,
+        program: HmmmProgram,
+        is_main: bool = False,
+    ) -> Tuple[List[HmmmInstruction], List[HmmmInstruction], List[HmmmInstruction]]:
         """Parses a compound statement and adds the appropriate instructions to the given program
 
         Args:
             node (pycparser.c_ast.Compound) -- The node to parse
             program (HmmmProgram) -- The program to add instructions to
-            is_in_loop (bool) -- Whether or not the compound statement is in a loop (affects how break & continue are handled)
+            is_main (bool, optional) -- Whether or not this is the main function. Defaults to False.
 
         Returns:
             break_code (List[HmmmInstruction]) -- The instructions to execute when a break statement is encountered. The user needs to set the jump address of these manually
             continue_code (List[HmmmInstruction]) -- The instructions to execute when a continue statement is encountered. The user needs to set the jump address of these manually
+            return_code (List[HmmmInstruction]) -- The instructions to execute when a return statement is encountered. The user needs to set the jump address of these manually
         """
 
         break_code = []
         continue_code = []
+        return_code = []
 
         for stmt in node.block_items:
             # If the user is declaring a new variable
@@ -438,17 +534,20 @@ class Compiler:
             ):
                 self.parse_decl_assign(stmt, program)
             elif isinstance(stmt, pycparser.c_ast.If):
-                break_statements, if_statements = self.parse_if(
-                    stmt, program, is_in_loop
+                break_statements, if_statements, return_statements = self.parse_if(
+                    stmt, program
                 )
                 break_code += break_statements
                 continue_code += if_statements
+                return_code += return_statements
             elif isinstance(stmt, pycparser.c_ast.While):
-                self.parse_while(stmt, program)
+                return_statements = self.parse_while(stmt, program)
+                return_code += return_statements
             elif isinstance(stmt, pycparser.c_ast.For):
-                self.parse_for(stmt, program)
+                return_statements = self.parse_for(stmt, program)
+                return_code += return_statements
             elif isinstance(stmt, pycparser.c_ast.Continue):
-                if is_in_loop:
+                if self.is_in_loop:
                     continue_statement = generate_instruction(
                         "jumpn", MemoryAddress(-1, None)
                     )
@@ -457,7 +556,7 @@ class Compiler:
                 else:
                     raise Exception("Continue statement not in a loop")
             elif isinstance(stmt, pycparser.c_ast.Break):
-                if is_in_loop:
+                if self.is_in_loop:
                     break_statement = generate_instruction(
                         "jumpn", MemoryAddress(-1, None)
                     )
@@ -471,14 +570,14 @@ class Compiler:
                 assert stmt.name.name in [
                     "printf",
                     "scanf",
-                ], "Only printf and scanf are supported"
+                ] + list(self.functions.keys()), "Function not defined"
                 if stmt.name.name == "printf":
                     assert (
-                        stmt.args.exprs[0].value == '"%d\\n"'
-                    ), 'Only printf("%d\\n", ...) is supported'
+                        stmt.args.exprs[0].value == '"%d"'
+                    ), 'Only printf("%d", var_to_print) is supported. First input must be "%d"'
                     assert (
                         len(stmt.args.exprs) == 2
-                    ), 'Only printf("%d\\n", ...) is supported'
+                    ), 'Only printf("%d", var_to_print) is supported. Must have exactly 2 inputs'
 
                     temp = self.parse_expression(stmt.args.exprs[1], program)
                     program.add_instruction(generate_instruction("write", temp))
@@ -497,6 +596,8 @@ class Compiler:
                             self.current_scope[stmt.args.exprs[1].expr.name],
                         )
                     )
+                else:
+                    self.parse_func_call(stmt, program)
             elif isinstance(stmt, pycparser.c_ast.UnaryOp):
                 temp = self.parse_unary_op(stmt, program)
                 program.add_instruction(
@@ -507,11 +608,29 @@ class Compiler:
                     )
                 )
             elif isinstance(stmt, pycparser.c_ast.Return):
-                pass
+                if is_main:
+                    program.add_instruction(generate_instruction("halt"))
+                else:
+                    if self.is_in_function:
+                        return_result = self.parse_expression(stmt.expr, program)
+                        program.add_instruction(
+                            generate_instruction(
+                                "copy",
+                                self.current_scope[HmmmRegister.R13],
+                                return_result,
+                            )
+                        )
+                        return_statement = generate_instruction(
+                            "jumpr", self.current_scope[HmmmRegister.R14]
+                        )
+                        program.add_instruction(return_statement)
+                        return_code.append(return_statement)
+                    else:
+                        raise Exception("Return statement not in a function")
             else:
                 raise NotImplementedError(f"Unsupported statement: {type(stmt)}")
 
-        return break_code, continue_code
+        return break_code, continue_code, return_code
 
     def compile(
         self,
@@ -519,13 +638,51 @@ class Compiler:
         ast: Optional[pycparser.c_ast.FileAST] = None,
     ) -> HmmmProgram:
 
+        ### Get the AST ###
         if filepath is not None:
             ast = generate_ast(filepath)
         elif ast is None:
             raise ValueError("Must provide either a filepath or an AST")
 
         self.global_scope = Scope()
-        
+
+        ### Parse functions ###
+
+        ## Generate a dict to store the parsed functions in ##
+        # Functions are parsed in two passes, so that if one function calls another (or itself) jump location for that function has already been generated
+        self.functions: dict[str, Function] = {}
+        for func in ast.ext:
+            if isinstance(func, pycparser.c_ast.FuncDef) and func.decl.name != "main":
+                func_program = HmmmProgram()
+                func_program.add_instruction(generate_instruction("nop"))
+
+                self.functions[func.decl.name] = {
+                    "program": func_program,
+                    "args": func.decl.type.args.params,
+                    "body": func.body,
+                }
+
+        for func in self.functions:
+            self.current_scope = Scope(self.global_scope)
+
+            # Add all the function's arguments to the current scope
+            for i, decl in enumerate(self.functions[func]["args"]):
+                assert (
+                    decl.type.type.names[0] == "int"
+                ), "Only int variables are supported"
+
+                self.current_scope.declar_var(decl.name, INDEX_TO_REGISTER[i])
+
+            self.is_in_function = True
+            self.parse_compound(
+                self.functions[func]["body"],
+                self.functions[func]["program"],
+            )
+            self.functions[func]["program"].assign_registers(
+                self.current_scope.get_vars()
+            )
+
+        # Process the code in the main function
         self.current_scope = self.global_scope
 
         main_program = HmmmProgram()
@@ -534,9 +691,14 @@ class Compiler:
             if isinstance(child, pycparser.c_ast.FuncDef):
                 if child.decl.name == "main":
                     if isinstance(child.body, pycparser.c_ast.Compound):
-                        self.parse_compound(child.body, main_program)
+                        self.parse_compound(child.body, main_program, is_main=True)
+                        
+        main_program.assign_registers(self.current_scope.get_vars())
 
-        main_program.add_instruction(generate_instruction("halt"))
+        # Add pre-compiled functions to the main program
+        for func in self.functions:
+            main_program.add_function(self.functions[func]["program"])
+
         main_program.compile(self.current_scope.get_vars())
 
         return main_program

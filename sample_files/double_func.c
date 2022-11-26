@@ -11,8 +11,10 @@ int main()
     scanf("%d", &a);
 
     int b = double_func(a);
+    int c = double_func(3);
 
     printf("%d", b);
+    printf("%d", c);
 
     return 0;
 }

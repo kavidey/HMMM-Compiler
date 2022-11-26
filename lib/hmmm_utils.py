@@ -262,3 +262,18 @@ def generate_instruction(
     else:
         raise Exception(f"Invalid opcode: {opcode}")
     return HmmmInstruction(opcode, MemoryAddress(-1, None), arg1, arg2, arg3)
+
+INDEX_TO_REGISTER = {
+    0: HmmmRegister.R1,
+    1: HmmmRegister.R2,
+    2: HmmmRegister.R3,
+    3: HmmmRegister.R4,
+    4: HmmmRegister.R5,
+    5: HmmmRegister.R6,
+    6: HmmmRegister.R7,
+    7: HmmmRegister.R8,
+    8: HmmmRegister.R9,
+    9: HmmmRegister.R10,
+    10: HmmmRegister.R11,
+    11: HmmmRegister.R12,
+}
