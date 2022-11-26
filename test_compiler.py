@@ -132,6 +132,15 @@ class TestPrimesBetween(TestProgram):
     def testB(self):
         assert self.run_file(self.FILENAME, [82, 98]) == [83, 89, 97]
 
+class TestPrimesBetween(TestProgram):
+    FILENAME = "double_func.c"
+
+    def testA(self):
+        assert self.run_file(self.FILENAME, [24]) == [48, 6]
+
+    def testB(self):
+        assert self.run_file(self.FILENAME, [17]) == [34, 6]
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -710,19 +710,22 @@ class Compiler:
                 assert isinstance(instruction.arg2.hmmm_instruction, HmmmInstruction)
                 
                 func_name = list(self.functions.keys())[instruction.arg2.hmmm_instruction.address.get_address()]
-                print(func_name)
-                print(liveness.get_node_by_name(instruction).live_in)
-                for register in liveness.get_node_by_name(instruction).live_in:
-                    add_before.append((instruction, generate_instruction("pushr", register._register, self.current_scope[HmmmRegister.R15])))
-                    add_after.append((instruction, generate_instruction("popr", register._register, self.current_scope[HmmmRegister.R15])))
+                num_args = len(self.functions[func_name]["args"])
+
+                calln_instruction_index = main_program.instructions.index(instruction)
+                push_instruction_index = calln_instruction_index - num_args
+                push_instruction = main_program.instructions[push_instruction_index]
+
+                live = liveness.get_node_by_name(instruction).live_in
+                live = set([register._register for register in live])
+                for register in live:
+                    add_before.append((push_instruction, generate_instruction("pushr", register, self.current_scope[HmmmRegister.R15])))
+                    add_after.append((instruction, generate_instruction("popr", register, self.current_scope[HmmmRegister.R15])))
 
         for instruction, new_instruction in add_before:
             main_program.add_instruction_before(new_instruction, instruction)
         for instruction, new_instruction in add_after:
             main_program.add_instruction_after(new_instruction, instruction)
-
-        print(main_program)
-        print()
 
         # Add pre-compiled functions to the main program
         for func in self.functions:
