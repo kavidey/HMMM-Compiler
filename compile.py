@@ -664,7 +664,6 @@ class Compiler:
         add_after_push: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
         add_after_pop: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
         for func_call in self.function_calls:
-            # print(program.to_str())
 
             # This gets the list of variables that were live before any registers were setup for the function call
             live_before_func_call = liveness.get_node_by_name(func_call[1]).live_in
@@ -675,7 +674,6 @@ class Compiler:
             # live = live_before_func_call+live_after_func_call
             live = live_after_func_call
             live = set([register for register in live if register._register not in [HmmmRegister.R14, HmmmRegister.R15]])
-            # print(live)
 
             for register in live:
                 add_after_push.append((func_call[1], generate_instruction("pushr", register, self.current_scope[HmmmRegister.R15])))
@@ -743,10 +741,6 @@ class Compiler:
             self.functions[func]["program"].assign_registers(
                 self.current_scope.get_vars()
             )
-        # print()
-        # print(self.functions["factorial"]["program"].to_str())
-
-        # awegawg
 
         # Process the code in the main function
         self.current_scope = self.global_scope
@@ -754,6 +748,7 @@ class Compiler:
         self.function_calls = []
 
         main_program = HmmmProgram()
+        main_program.add_instruction(generate_instruction("nop"))
 
         for child in ast.ext:
             if isinstance(child, pycparser.c_ast.FuncDef):

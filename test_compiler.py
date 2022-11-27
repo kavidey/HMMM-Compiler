@@ -159,5 +159,20 @@ class TestRecursiveFactorial(TestProgram):
     def testB(self):
         assert self.run_file(self.FILENAME, [5]) == [120,6]
 
+class TestAckermann(TestProgram):
+    FILENAME = "ackermann.c"
+
+    def testA(self):
+        assert self.run_file(self.FILENAME, [1,1]) == [3]
+
+    def testB(self):
+        assert self.run_file(self.FILENAME, [1,2]) == [4]
+
+    def testC(self):
+        assert self.run_file(self.FILENAME, [2,1]) == [5]
+
+    def testD(self):
+        assert self.run_file(self.FILENAME, [2,2]) == [7]
+
 if __name__ == "__main__":
     unittest.main()
