@@ -715,7 +715,7 @@ class Compiler:
                     "program": func_program,
                     "args": func.decl.type.args.params,
                     "body": func.body,
-                    "jump_location": func_program.instructions[len(self.functions)],
+                    "jump_location": func_program.instructions[0],
                 }
 
         for func in self.functions:
