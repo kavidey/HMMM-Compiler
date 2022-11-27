@@ -62,6 +62,7 @@ class Compiler:
     def __init__(self) -> None:
         self.is_in_loop = False
         self.is_in_function = False
+        self.function_calls: List[Tuple[str, HmmmInstruction, HmmmInstruction, HmmmInstruction]] = [] # (name, push before calln, calln instruction, pop after calln)
 
     def parse_binary_op(
         self, node: pycparser.c_ast.BinaryOp, program: HmmmProgram
@@ -475,10 +476,7 @@ class Compiler:
             args_given == args_needed
         ), f"Function {node.name.name} takes {args_needed} arguments, but {args_given} were given"
 
-        if self.is_in_function:
-            program.add_instruction(
-                generate_instruction("pushr", self.current_scope[HmmmRegister.R14], self.current_scope[HmmmRegister.R15])
-            )
+        func_call_details = (node.name.name, program.instructions[-1])
 
         # Move the arguments into the correct registers
         for i, arg in enumerate(node.args.exprs):
@@ -491,6 +489,11 @@ class Compiler:
                 )
             )
 
+        if self.is_in_function:
+            program.add_instruction(
+                generate_instruction("pushr", self.current_scope[HmmmRegister.R14], self.current_scope[HmmmRegister.R15])
+            )
+
         # Call the function
         program.add_instruction(
             generate_instruction(
@@ -499,6 +502,7 @@ class Compiler:
                 MemoryAddress(-1, self.functions[node.name.name]["jump_location"]),
             )
         )
+        func_call_details += (program.instructions[-1],)
 
         if self.is_in_function:
             program.add_instruction(
@@ -512,6 +516,8 @@ class Compiler:
                 "copy", return_temp, self.current_scope[HmmmRegister.R13]
             )
         )
+        func_call_details += (program.instructions[-1],)
+        self.function_calls.append(func_call_details)
 
         return return_temp
 
@@ -643,7 +649,7 @@ class Compiler:
 
         return break_code, continue_code, return_code
 
-    def save_variables_during_function_call(self, program: HmmmProgram, live_in: List[TemporaryRegister] = []):
+    def save_variables_during_function_calls(self, program: HmmmProgram, live_in: List[TemporaryRegister] = []):
         """Saves the values of all variables in the current scope to the stack
 
         This should be called *after* register allocation has been completed
@@ -656,29 +662,23 @@ class Compiler:
         liveness = program.run_liveness_analysis(self.current_scope.get_vars(), live_in=live_in)
         add_before: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
         add_after: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
-        for instruction in program.instructions:
-            if instruction.opcode == "calln":
-                assert isinstance(instruction.arg2, MemoryAddress)
-                assert isinstance(instruction.arg2.hmmm_instruction, HmmmInstruction)
-                
-                func_name = list(self.functions.keys())[instruction.arg2.hmmm_instruction.address.get_address()]
-                num_args = len(self.functions[func_name]["args"])
+        for func_call in self.function_calls:
+            # print(program.to_str())
 
-                # Push statements need to be added before the function's arguments are moved into place, so that the arguments are not overwritten
-                # Additionally, pop instructions should take place before the function's return value is moved into place, so that the return value is not overwritten
-                calln_instruction_index = program.instructions.index(instruction)
-                push_instruction_index = calln_instruction_index - num_args
-                pop_instruction_index = calln_instruction_index + 1
-                push_instruction = program.instructions[push_instruction_index]
-                pop_instruction = program.instructions[pop_instruction_index]
+            # This gets the list of variables that were live before any registers were setup for the function call
+            live_before_func_call = liveness.get_node_by_name(func_call[1]).live_in
 
+            # This gets the list of variables that were live after the result of the function call was moved from R13 to a temporary
+            live_after_func_call = liveness.get_node_by_name(func_call[3]).live_out
 
-                live = liveness.get_node_by_name(instruction).live_in
-                # print(live, instruction.address.get_address())
-                live = set([register for register in live if register._register not in [HmmmRegister.R14, HmmmRegister.R15]])
-                for register in live:
-                    add_before.append((push_instruction, generate_instruction("pushr", register, self.current_scope[HmmmRegister.R15])))
-                    add_after.append((pop_instruction, generate_instruction("popr", register, self.current_scope[HmmmRegister.R15])))
+            # live = live_before_func_call+live_after_func_call
+            live = live_after_func_call
+            live = set([register for register in live if register._register not in [HmmmRegister.R14, HmmmRegister.R15]])
+            # print(live)
+
+            for register in live:
+                add_after.append((func_call[1], generate_instruction("pushr", register, self.current_scope[HmmmRegister.R15])))
+                add_before.append((func_call[3], generate_instruction("popr", register, self.current_scope[HmmmRegister.R15])))
 
         for instruction, new_instruction in add_before:
             program.add_instruction_before(new_instruction, instruction)
@@ -709,9 +709,7 @@ class Compiler:
             if isinstance(func, pycparser.c_ast.FuncDef) and func.decl.name != "main":
                 func_program = HmmmProgram()
 
-                # This is a janky way to tell which function is which later on
-                for i in range(len(self.functions)+1):
-                    func_program.add_instruction(generate_instruction("nop"))
+                func_program.add_instruction(generate_instruction("nop"))
 
                 self.functions[func.decl.name] = {
                     "program": func_program,
@@ -732,18 +730,26 @@ class Compiler:
                 self.current_scope.declar_var(decl.name, INDEX_TO_REGISTER[i])
 
             self.is_in_function = True
+            self.function_calls = []
+
             self.parse_compound(
                 self.functions[func]["body"],
                 self.functions[func]["program"],
             )
-            self.save_variables_during_function_call(self.functions[func]["program"], live_in=[self.current_scope[INDEX_TO_REGISTER[i]] for i in range(len(self.functions[func]["args"]))])
+            # print(self.function_calls)
+            self.save_variables_during_function_calls(self.functions[func]["program"], live_in=[self.current_scope[INDEX_TO_REGISTER[i]] for i in range(len(self.functions[func]["args"]))])
             self.functions[func]["program"].assign_registers(
                 self.current_scope.get_vars()
             )
+        # print()
+        # print(self.functions["factorial"]["program"].to_str())
+
+        # awegawg
 
         # Process the code in the main function
         self.current_scope = self.global_scope
         self.is_in_function = False
+        self.function_calls = []
 
         main_program = HmmmProgram()
 
@@ -753,7 +759,7 @@ class Compiler:
                     if isinstance(child.body, pycparser.c_ast.Compound):
                         self.parse_compound(child.body, main_program, is_main=True)
 
-        self.save_variables_during_function_call(main_program)
+        self.save_variables_during_function_calls(main_program)
         main_program.assign_registers(self.current_scope.get_vars())
 
         # Add pre-compiled functions to the main program
