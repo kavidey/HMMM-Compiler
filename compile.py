@@ -757,6 +757,8 @@ class Compiler:
                         self.parse_compound(child.body, main_program, is_main=True)
 
         self.save_variables_during_function_calls(main_program)
+        print(main_program)
+        print()
         main_program.assign_registers(self.current_scope.get_vars())
 
         # Add pre-compiled functions to the main program

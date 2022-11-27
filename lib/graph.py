@@ -84,6 +84,7 @@ class DirectedGraph:
         uses: List[TemporaryRegister] = [],
         defines: List[TemporaryRegister] = [],
         start_node: bool = False,
+        is_move: bool = False
     ) -> DirectedNode:
         for temporary in uses + defines:
             if temporary not in self.temporaries:
@@ -92,7 +93,7 @@ class DirectedGraph:
                 )
 
         node_id = node_id if node_id else len(self.nodes)
-        self.nodes[node_id] = DirectedNode(node_id, name, uses, defines)
+        self.nodes[node_id] = DirectedNode(node_id, name, uses, defines, is_move=is_move)
 
         if start_node:
             self.start_node = self.nodes[node_id]
@@ -195,7 +196,9 @@ class DirectedGraph:
 
         for node in self.nodes.values():
             if node.is_move:
-                interference_graph.add_move_edge(node.uses[0], node.defines[0])
+                if not interference_graph.check_move(node.uses[0], node.defines[0]) and not interference_graph.check_adjacency(node.uses[0], node.defines[0]):
+                    if not (isinstance(node.uses[0]._temporary_id, HmmmRegister) or isinstance(node.defines[0]._temporary_id, HmmmRegister)):
+                        interference_graph.add_move_edge(node.uses[0], node.defines[0])
 
         return interference_graph
 
@@ -203,7 +206,7 @@ class DirectedGraph:
         edges = []
 
         for edge in self.edges:
-            edge_str = f'"{edge.src.name}" -> "{edge.dst.name}"'
+            edge_str = f'"{edge.src.name.to_string(True)}" -> "{edge.dst.name.to_string(True)}"'
             if edge.live_temporaries:
                 edge_str += f' [label="{" ".join([str(temp) for temp in edge.live_temporaries])}"]'
             edge_str += "; "
@@ -280,19 +283,36 @@ class Node:
     def __hash__(self) -> int:
         return hash(self.id)
 
+    def is_colored(self):
+        """Checks if the node is colored
+
+        Returns:
+            bool: True if the node is colored
+        """
+        return self.color is not None
+
 
 class CoalescedNode(Node):
     def __init__(
         self, id: int, nodes: List[Node], color: Optional[HmmmRegister] = None
     ):
         combined_node_name: List[TemporaryRegister] = []
+        self.color = color
         for node in nodes:
             if isinstance(node.name, list):
                 raise Exception(
                     "Cannot coalesce a coalesced node, please add the desired node to this node instead."
                 )
             combined_node_name += [node.name]
-        super().__init__(id, combined_node_name, color)
+            if node.is_colored():
+                if self.color and self.color != node.color:
+                    raise Exception(
+                        "Cannot coalesce nodes with different colors."
+                    )
+                self.color = node.color
+        for node in nodes:
+            node.color = self.color
+        super().__init__(id, combined_node_name, self.color)
         self.nodes = nodes
 
     def __repr__(self):
@@ -306,6 +326,10 @@ class CoalescedNode(Node):
         Args:
             node (Node): The node to add
         """
+        if node.is_colored():
+            if self.color and self.color != node.color:
+                raise Exception("Cannot coalesce nodes with different colors.")
+        node.color = self.color
         self.nodes.append(node)
         self.name = [node.name for node in self.nodes]
 
@@ -422,6 +446,21 @@ class Graph:
         node1.move_list.append(node2)
         node2.move_list.append(node1)
 
+    def check_move(self, name1: interference_node_name_type, name2: interference_node_name_type) -> bool:
+        """Checks if there is a move edge between two nodes
+
+        Arguments:
+            name1 {any} -- The name of the first node
+            name2 {any} -- The name of the second node
+
+        Returns:
+            bool -- True if there is a move edge between the two nodes, False otherwise
+        """
+        node1 = self.get_node_by_name(name1)
+        node2 = self.get_node_by_name(name2)
+
+        return node2 in node1.move_list
+
     def check_adjacency(
         self, name1: interference_node_name_type, name2: interference_node_name_type
     ) -> bool:
@@ -528,12 +567,12 @@ class InterferenceGraph(Graph):
         for adjacent in node.get_adjacent():
             adjacent.adjacent.remove(node)
             adjacent.adjacent_removed.append(node)
-        node.adjacent = node.adjacent
+        node.adjacent_removed = node.adjacent
         node.adjacent = []
         for move in node.get_move():
             move.move_list.remove(node)
             move.move_list_removed.append(node)
-        node.move_list = node.move_list
+        node.move_list_removed = node.move_list
         node.move_list = []
 
         self.nodes.pop(node.id)
@@ -614,10 +653,15 @@ class InterferenceGraph(Graph):
                         combined_adjacent = list(
                             set(node.get_adjacent() + move.get_adjacent())
                         )
+                        combined_adjacent_removed = list(set(
+                            node.adjacent_removed + move.adjacent_removed
+                        ))
                         combined_move = list(set(node.get_move() + move.get_move()))
                         combined_move = [
                             node for node in combined_move if node not in [move, node]
                         ]
+
+                        coalesced_node.adjacent_removed = combined_adjacent_removed
 
                         self.remove_node(move.name)
                         self.remove_node(node.name)
@@ -627,6 +671,12 @@ class InterferenceGraph(Graph):
                                 raise Exception(
                                     "Cannot coalesce a coalesced node, instead please add it to the already coalesced node"
                                 )
+
+                        # print(self.nodes)
+                        # print(self.simplified_nodes)
+                        # print(node, move, coalesced_node)
+                        # print(combined_adjacent)
+                        # print(combined_move)
 
                         for combined_adjacent_node in combined_adjacent:
                             self.add_interference_edge(
@@ -692,7 +742,7 @@ class InterferenceGraph(Graph):
 
         while can_simplify_and_coalesce:
             self.simplify()
-            self.coalesce(len(self.nodes))
+            self.coalesce()
 
             # We should move on from simplification and coalescing if either:
             # the only nodes remaning are move-related or of significant degree or all nodes are precolored
@@ -727,13 +777,15 @@ class InterferenceGraph(Graph):
             raise Exception(
                 "Could not assign registers. Spilling is not implemented yet."
             )
-
-        for simplified_node_id in list(self.simplified_nodes.keys()):
-            if self.simplified_nodes[simplified_node_id].color == None:
-                adjacent_nodes = self.simplified_nodes[
-                    simplified_node_id
-                ].adjacent_removed
+        print()
+        print(list(self.nodes.values()))
+        print()
+        
+        for node in self.simplified_nodes.values():
+            if not node.is_colored():
+                adjacent_nodes = node.adjacent_removed + node.adjacent
                 adjacent_colors = [node.color for node in adjacent_nodes]
+                print(node, adjacent_nodes, adjacent_colors)
 
                 possible_registers = [
                     register
@@ -741,24 +793,28 @@ class InterferenceGraph(Graph):
                     if register not in adjacent_colors
                 ]
                 selected_register = possible_registers[0]
-                self.simplified_nodes[simplified_node_id].color = selected_register
+                node.color = selected_register
+
+        all_nodes = list(self.nodes.values()) + list(self.simplified_nodes.values())
 
         nodes_to_delete = []
         children_to_add: Dict[int, Node] = {}
-        for node in self.simplified_nodes.values():
+        for node in all_nodes:
             if isinstance(node, CoalescedNode):
                 nodes_to_delete.append(node)
                 for child_node in node.nodes:
                     child_node.color = node.color
                     children_to_add[child_node.id] = child_node
 
-        self.simplified_nodes = {
+        colored_nodes = {
             node.id: node
-            for node in self.simplified_nodes.values()
+            for node in all_nodes
             if node not in nodes_to_delete
         } | children_to_add
 
-        return list(self.simplified_nodes.values())
+        print([(node.name, node.color) for node in colored_nodes.values()])
+
+        return list(colored_nodes.values())
 
 
 if __name__ == "__main__":

@@ -131,7 +131,7 @@ class HmmmInstruction:
         return f"{self.address.get_address()} {self.opcode} {self.format_arg(self.arg1, include_unassigned_registers)} {self.format_arg(self.arg2, include_unassigned_registers)} {self.format_arg(self.arg3, include_unassigned_registers)}"
 
     def get_def_use(
-        self, constatnt_registers: dict[str, TemporaryRegister]
+        self, constant_registers: dict[str, TemporaryRegister]
     ) -> Tuple[
         List[Union[TemporaryRegister, HmmmRegister]],
         List[Union[TemporaryRegister, HmmmRegister]],
@@ -152,7 +152,7 @@ class HmmmInstruction:
         elif self.opcode == "setn":
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
             assert isinstance(self.arg2, int)
-            return [], [self.arg1]
+            return [self.arg1], []
         elif self.opcode == "addn":
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
             assert isinstance(self.arg2, int)
@@ -183,7 +183,7 @@ class HmmmInstruction:
         elif self.opcode == "calln":
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
             assert isinstance(self.arg2, (int, MemoryAddress))
-            return [self.arg1, constatnt_registers["r13"]], []
+            return [constant_registers["r13"]], [self.arg1]
         elif self.opcode == "pushr":
             assert isinstance(self.arg1, (HmmmRegister, TemporaryRegister))
             assert isinstance(self.arg2, (HmmmRegister, TemporaryRegister))

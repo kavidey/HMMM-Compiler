@@ -118,7 +118,7 @@ class HmmmProgram:
                 if i == 0:
                     defines += live_in
 
-                control_flow_graph.add_node(instruction, defines=defines, uses=uses, start_node=True if i == 0 else False)  # type: ignore
+                control_flow_graph.add_node(instruction, defines=defines, uses=uses, start_node=True if i == 0 else False, is_move=True if instruction.opcode == "copy" else False)  # type: ignore
 
         # Add edges to the graph
         for i in range(len(self.instructions) - 1):
@@ -151,6 +151,7 @@ class HmmmProgram:
         
         # Run liveness analysis
         control_flow_graph = self.run_liveness_analysis(temporary_registers)
+        print(control_flow_graph)
 
         # Assign registers
         interference_graph = control_flow_graph.generate_interference_graph(
@@ -169,6 +170,9 @@ class HmmmProgram:
                 HmmmRegister.R12,
             ]
         )
+
+        print(interference_graph)
+
 
         colored_temporaries = interference_graph.assign_registers()
         for colored_temporary in colored_temporaries:
