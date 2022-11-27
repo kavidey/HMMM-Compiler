@@ -1,7 +1,7 @@
 #include <stdio.h>
 
 int factorial(int x) {
-    if (x == 0) {
+    if (x < 1) {
         return 1;
     } else {
         return x * factorial(x - 1);
@@ -17,7 +17,7 @@ int main()
     int b = factorial(a);
 
     printf("%d\n", b);
-    // printf("%d\n", factorial(3));
+    printf("%d\n", factorial(3));
 
     return 0;
 }

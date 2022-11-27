@@ -150,6 +150,14 @@ class TestQuadrupleFunc(TestProgram):
     def testB(self):
         assert self.run_file(self.FILENAME, [4]) == [16,16]
 
+class TestRecursiveFactorial(TestProgram):
+    FILENAME = "recursive_factorial.c"
+
+    def testA(self):
+        assert self.run_file(self.FILENAME, [2]) == [2,6]
+
+    def testB(self):
+        assert self.run_file(self.FILENAME, [5]) == [120,6]
 
 if __name__ == "__main__":
     unittest.main()

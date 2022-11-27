@@ -660,8 +660,9 @@ class Compiler:
         program.assign_line_numbers()
 
         liveness = program.run_liveness_analysis(self.current_scope.get_vars(), live_in=live_in)
-        add_before: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
-        add_after: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
+        # add_before_push: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
+        add_after_push: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
+        add_after_pop: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
         for func_call in self.function_calls:
             # print(program.to_str())
 
@@ -669,7 +670,7 @@ class Compiler:
             live_before_func_call = liveness.get_node_by_name(func_call[1]).live_in
 
             # This gets the list of variables that were live after the result of the function call was moved from R13 to a temporary
-            live_after_func_call = liveness.get_node_by_name(func_call[3]).live_out
+            live_after_func_call = liveness.get_node_by_name(func_call[3]).live_in
 
             # live = live_before_func_call+live_after_func_call
             live = live_after_func_call
@@ -677,12 +678,14 @@ class Compiler:
             # print(live)
 
             for register in live:
-                add_after.append((func_call[1], generate_instruction("pushr", register, self.current_scope[HmmmRegister.R15])))
-                add_before.append((func_call[3], generate_instruction("popr", register, self.current_scope[HmmmRegister.R15])))
+                add_after_push.append((func_call[1], generate_instruction("pushr", register, self.current_scope[HmmmRegister.R15])))
+                add_after_pop.insert(0, (func_call[3], generate_instruction("popr", register, self.current_scope[HmmmRegister.R15])))
 
-        for instruction, new_instruction in add_before:
-            program.add_instruction_before(new_instruction, instruction)
-        for instruction, new_instruction in add_after:
+        # for instruction, new_instruction in add_before_push:
+        #     program.add_instruction_before(instruction, new_instruction)
+        for instruction, new_instruction in add_after_push:
+            program.add_instruction_after(new_instruction, instruction)
+        for instruction, new_instruction in add_after_pop:
             program.add_instruction_after(new_instruction, instruction)
 
 
@@ -736,7 +739,6 @@ class Compiler:
                 self.functions[func]["body"],
                 self.functions[func]["program"],
             )
-            # print(self.function_calls)
             self.save_variables_during_function_calls(self.functions[func]["program"], live_in=[self.current_scope[INDEX_TO_REGISTER[i]] for i in range(len(self.functions[func]["args"]))])
             self.functions[func]["program"].assign_registers(
                 self.current_scope.get_vars()
