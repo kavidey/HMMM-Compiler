@@ -299,7 +299,7 @@ class CoalescedNode(Node):
         combined_node_name: List[TemporaryRegister] = []
         self.color = color
         for node in nodes:
-            if isinstance(node.name, list):
+            if isinstance(node.name, list) or isinstance(node, CoalescedNode):
                 raise Exception(
                     "Cannot coalesce a coalesced node, please add the desired node to this node instead."
                 )
@@ -331,8 +331,9 @@ class CoalescedNode(Node):
                 raise Exception("Cannot coalesce nodes with different colors.")
         node.color = self.color
         self.nodes.append(node)
-        self.name = [node.name for node in self.nodes]
-
+        self.name = [n.name for n in self.nodes]
+        self.adjacent = list(set(self.adjacent + node.adjacent))
+        self.move_list = list(set(self.move_list + [n for n in node.move_list if n not in self.nodes and n != self]))
 
 class Graph:
     def __init__(self) -> None:
@@ -340,6 +341,12 @@ class Graph:
         self.adjacency_matrix = []
 
     def __repr__(self):
+        nodes = []
+        for node in self.nodes.values():
+            if not isinstance(node, CoalescedNode) and isinstance(node.name._register, HmmmRegister):  # type: ignore
+                continue
+            nodes.append(f"\"{node.name}\"")
+
         edges = []
 
         for node in self.nodes.values():
@@ -350,7 +357,7 @@ class Graph:
                 if not f'"{move_node.name}" -- "{node.name}" [style=dotted];' in edges:
                     edges.append(f'"{node.name}" -- "{move_node.name}" [style=dotted];')
 
-        return "graph {{{}}}".format(" ".join(edges))
+        return "graph {{{}}}".format(" ".join(edges+nodes))
 
     def add_node(
         self,
@@ -643,50 +650,63 @@ class InterferenceGraph(Graph):
             for node in sorted(self.nodes.values(), reverse=True):
                 for move in node.get_move():
                     if self.can_coalesce(node, move, method="george"):
-                        coalesced_node = CoalescedNode(
-                            self.running_node_id, [node, move]
-                        )
-                        self.running_node_id += 1
+                        if not isinstance(move, CoalescedNode) and not isinstance(node, CoalescedNode):
+                            coalesced_node = CoalescedNode(
+                                self.running_node_id, [node, move]
+                            )
+                            self.running_node_id += 1
 
-                        self.add_existing_node(coalesced_node)
+                            self.add_existing_node(coalesced_node)
 
-                        combined_adjacent = list(
-                            set(node.get_adjacent() + move.get_adjacent())
-                        )
-                        combined_adjacent_removed = list(set(
-                            node.adjacent_removed + move.adjacent_removed
-                        ))
-                        combined_move = list(set(node.get_move() + move.get_move()))
-                        combined_move = [
-                            node for node in combined_move if node not in [move, node]
-                        ]
+                            combined_adjacent = list(
+                                set(node.get_adjacent() + move.get_adjacent())
+                            )
+                            combined_adjacent_removed = list(set(
+                                node.adjacent_removed + move.adjacent_removed
+                            ))
+                            combined_move = list(set(node.get_move() + move.get_move()))
+                            combined_move = [
+                                n for n in combined_move if not n in [move, node]
+                            ]
 
-                        coalesced_node.adjacent_removed = combined_adjacent_removed
+                            coalesced_node.adjacent_removed = combined_adjacent_removed
 
-                        self.remove_node(move.name)
-                        self.remove_node(node.name)
+                            self.remove_node(move.name)
+                            self.remove_node(node.name)
 
-                        for n in coalesced_node.name:
-                            if isinstance(n, List):
-                                raise Exception(
-                                    "Cannot coalesce a coalesced node, instead please add it to the already coalesced node"
+                            for n in coalesced_node.name:
+                                if isinstance(n, List):
+                                    raise Exception(
+                                        "Cannot coalesce a coalesced node, instead please add it to the already coalesced node"
+                                    )
+
+                            # print(self.nodes)
+                            # print(self.simplified_nodes)
+                            # print(node, move, coalesced_node)
+                            # print(combined_adjacent)
+                            # print(combined_move)
+
+                            for combined_adjacent_node in combined_adjacent:
+                                self.add_interference_edge(
+                                    coalesced_node.name, combined_adjacent_node.name  # type: ignore
                                 )
-
-                        # print(self.nodes)
-                        # print(self.simplified_nodes)
-                        # print(node, move, coalesced_node)
-                        # print(combined_adjacent)
-                        # print(combined_move)
-
-                        for combined_adjacent_node in combined_adjacent:
-                            self.add_interference_edge(
-                                coalesced_node.name, combined_adjacent_node.name  # type: ignore
-                            )
-                        for combined_move_node in combined_move:
-                            self.add_move_edge(
-                                coalesced_node.name, combined_move_node.name  # type: ignore
-                            )
-                        coalesced_nodes.append(coalesced_node)
+                            for combined_move_node in combined_move:
+                                self.add_move_edge(
+                                    coalesced_node.name, combined_move_node.name  # type: ignore
+                                )
+                            coalesced_nodes.append(coalesced_node)
+                        else:
+                            if isinstance(move, CoalescedNode) and not isinstance(node, CoalescedNode):
+                                c = move
+                                n = node
+                            elif isinstance(node, CoalescedNode) and not isinstance(move, CoalescedNode):
+                                c = node
+                                n = move
+                            else:
+                                raise Exception("Cannot coalesce two coalesced nodes")
+                            c.add_node(n)
+                            self.remove_node(n.name)
+                            coalesced_nodes.append(c)
                         break
                 # Breakout of multiple loops at once: https://stackoverflow.com/a/3150107/6454085
                 else:
@@ -741,8 +761,10 @@ class InterferenceGraph(Graph):
         can_simplify_and_coalesce = True
 
         while can_simplify_and_coalesce:
-            self.simplify()
-            self.coalesce()
+            print("s", self.simplify())
+            print(self)
+            print("c", self.coalesce())
+            print(self)
 
             # We should move on from simplification and coalescing if either:
             # the only nodes remaning are move-related or of significant degree or all nodes are precolored
