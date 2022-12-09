@@ -472,15 +472,14 @@ class Compiler:
         func_call_details = (node.name.name, program.instructions[-1])
 
         # Move the arguments into the correct registers
+        # Copying temporaries into the function inputs is delayed in case multiple inputs use the same temporary (we don't want to overwrite the input)
+        to_copy = []
         for i, arg in enumerate(node.args.exprs):
             arg_temp = self.parse_expression(arg, program)
-            program.add_instruction(
-                generate_instruction(
-                    "copy",
-                    self.current_scope[INDEX_TO_REGISTER[i]],
-                    arg_temp,
-                )
-            )
+            to_copy.append((self.current_scope[INDEX_TO_REGISTER[i]], arg_temp))
+
+        for c in to_copy:
+            program.add_instruction(generate_instruction("copy", *c))
 
         if self.is_in_function:
             program.add_instruction(
@@ -645,7 +644,7 @@ class Compiler:
     def save_variables_during_function_calls(self, program: HmmmProgram, live_in: List[TemporaryRegister] = []):
         """Saves the values of all variables in the current scope to the stack
 
-        This should be called *after* register allocation has been completed
+        This should be called *before* register allocation has been completed
 
         Args:
             program (HmmmProgram) -- The program to add instructions to
