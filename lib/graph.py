@@ -333,6 +333,7 @@ class CoalescedNode(Node):
         self.nodes.append(node)
         self.name = [n.name for n in self.nodes]
         self.adjacent = list(set(self.adjacent + node.adjacent))
+        self.adjacent_removed = list(set(self.adjacent_removed + node.adjacent_removed))
         self.move_list = list(set(self.move_list + [n for n in node.move_list if n not in self.nodes and n != self]))
 
 class Graph:
@@ -574,12 +575,12 @@ class InterferenceGraph(Graph):
         for adjacent in node.get_adjacent():
             adjacent.adjacent.remove(node)
             adjacent.adjacent_removed.append(node)
-        node.adjacent_removed = node.adjacent
+        node.adjacent_removed += node.adjacent
         node.adjacent = []
         for move in node.get_move():
             move.move_list.remove(node)
             move.move_list_removed.append(node)
-        node.move_list_removed = node.move_list
+        node.move_list_removed += node.move_list
         node.move_list = []
 
         self.nodes.pop(node.id)
@@ -680,12 +681,6 @@ class InterferenceGraph(Graph):
                                         "Cannot coalesce a coalesced node, instead please add it to the already coalesced node"
                                     )
 
-                            # print(self.nodes)
-                            # print(self.simplified_nodes)
-                            # print(node, move, coalesced_node)
-                            # print(combined_adjacent)
-                            # print(combined_move)
-
                             for combined_adjacent_node in combined_adjacent:
                                 self.add_interference_edge(
                                     coalesced_node.name, combined_adjacent_node.name  # type: ignore
@@ -761,10 +756,8 @@ class InterferenceGraph(Graph):
         can_simplify_and_coalesce = True
 
         while can_simplify_and_coalesce:
-            print("s", self.simplify())
-            print(self)
-            print("c", self.coalesce())
-            print(self)
+            self.simplify()
+            self.coalesce()
 
             # We should move on from simplification and coalescing if either:
             # the only nodes remaning are move-related or of significant degree or all nodes are precolored
@@ -799,15 +792,11 @@ class InterferenceGraph(Graph):
             raise Exception(
                 "Could not assign registers. Spilling is not implemented yet."
             )
-        print()
-        print(list(self.nodes.values()))
-        print()
         
         for node in self.simplified_nodes.values():
             if not node.is_colored():
                 adjacent_nodes = node.adjacent_removed + node.adjacent
                 adjacent_colors = [node.color for node in adjacent_nodes]
-                print(node, adjacent_nodes, adjacent_colors)
 
                 possible_registers = [
                     register
@@ -833,8 +822,6 @@ class InterferenceGraph(Graph):
             for node in all_nodes
             if node not in nodes_to_delete
         } | children_to_add
-
-        print([(node.name, node.color) for node in colored_nodes.values()])
 
         return list(colored_nodes.values())
 

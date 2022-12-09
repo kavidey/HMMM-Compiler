@@ -1,7 +1,9 @@
 from enum import Enum
-from typing import List, Set, Dict, Tuple, Optional, NamedTuple, Union
+from typing import List, Set, Dict, Tuple, Optional, NamedTuple, Union, TypedDict
 from dataclasses import dataclass
 from lib.graph import DirectedGraph
+
+import pycparser
 
 from lib.hmmm_utils import (
     HmmmRegister,
@@ -9,7 +11,14 @@ from lib.hmmm_utils import (
     TemporaryRegister,
     HmmmInstruction,
     generate_instruction,
+    INDEX_TO_REGISTER
 )
+
+class Function(TypedDict):
+    program: "HmmmProgram"
+    args: List
+    body: pycparser.c_ast.Compound # type: ignore
+    jump_location: HmmmInstruction
 
 class HmmmProgram:
     def __init__(self):
@@ -80,7 +89,7 @@ class HmmmProgram:
             output.append(instruction.to_string(include_unassigned_registers=(not self.compiled)))
         return output
 
-    def run_liveness_analysis(self, temporary_registers: List[TemporaryRegister], live_in: List[TemporaryRegister] = []):
+    def run_liveness_analysis(self, functions: dict[str, Function], temporary_registers: List[TemporaryRegister], live_in: List[TemporaryRegister] = []):
         """Run liveness analysis on the program
         
         Args:
@@ -101,19 +110,23 @@ class HmmmProgram:
             control_flow_graph.add_temporary(register)
 
         # Add instructions to the graph
-        constant_registers: dict[str, TemporaryRegister] = {}
+        constant_registers: dict[HmmmRegister, TemporaryRegister] = {}
         for register in temporary_registers:
-            if register._register == HmmmRegister.R13:
-                constant_registers["r13"] = register
-            elif register._register == HmmmRegister.R14:
-                constant_registers["r14"] = register
-            elif register._register == HmmmRegister.R15:
-                constant_registers["r15"] = register
+            if isinstance(register._temporary_id, HmmmRegister):
+                constant_registers[register._temporary_id] = register
 
         for i in range(len(self.instructions)):
             instruction = self.instructions[i]
             if isinstance(instruction, HmmmInstruction):
                 defines, uses = instruction.get_def_use(constant_registers)
+
+                if instruction.opcode == "calln":
+                    assert isinstance(instruction.arg2, MemoryAddress)
+                    jump_location = instruction.arg2.hmmm_instruction
+                    for function in functions.values():
+                        if function["jump_location"] == jump_location:
+                            uses += [constant_registers[INDEX_TO_REGISTER[i]] for i in range(len(function["args"]))]
+                            break
 
                 if i == 0:
                     defines += live_in
@@ -140,7 +153,7 @@ class HmmmProgram:
 
         return control_flow_graph
 
-    def assign_registers(self, temporary_registers: List[TemporaryRegister]):
+    def assign_registers(self, functions: dict[str, Function], temporary_registers: List[TemporaryRegister]):
         """
         Assign registers to temporary registers.
 
@@ -150,8 +163,7 @@ class HmmmProgram:
             raise Exception("Cannot assign registers to compiled program")
         
         # Run liveness analysis
-        control_flow_graph = self.run_liveness_analysis(temporary_registers)
-        print(control_flow_graph)
+        control_flow_graph = self.run_liveness_analysis(functions, temporary_registers)
 
         # Assign registers
         interference_graph = control_flow_graph.generate_interference_graph(
@@ -170,9 +182,6 @@ class HmmmProgram:
                 HmmmRegister.R12,
             ]
         )
-
-        print(interference_graph)
-
 
         colored_temporaries = interference_graph.assign_registers()
         for colored_temporary in colored_temporaries:

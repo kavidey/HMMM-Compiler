@@ -150,6 +150,15 @@ class TestQuadrupleFunc(TestProgram):
     def testB(self):
         assert self.run_file(self.FILENAME, [4]) == [16,16]
 
+class TestDivisibleByFunc(TestProgram):
+    FILENAME = "divisible_by.c"
+
+    def testA(self):
+        assert self.run_file(self.FILENAME, [10,5]) == [1,1]
+
+    def testB(self):
+        assert self.run_file(self.FILENAME, [10,7]) == [0,0]
+
 class TestRecursiveFactorial(TestProgram):
     FILENAME = "recursive_factorial.c"
 

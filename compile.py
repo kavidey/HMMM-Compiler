@@ -1,12 +1,12 @@
 import argparse
 import copy
 import re
-from typing import List, Tuple, Union, Optional, TypedDict
+from typing import List, Tuple, Union, Optional
 
 import pycparser
 from pycparser import parse_file
 
-from lib.hmmm_program import HmmmProgram
+from lib.hmmm_program import HmmmProgram, Function
 from lib.hmmm_utils import (
     TemporaryRegister,
     get_temporary_register,
@@ -49,13 +49,6 @@ class Scope:
 
     def __repr__(self) -> str:
         return str(self.scope)
-
-
-class Function(TypedDict):
-    program: HmmmProgram
-    args: List
-    body: pycparser.c_ast.Compound
-    jump_location: HmmmInstruction
 
 
 class Compiler:
@@ -659,7 +652,7 @@ class Compiler:
         """
         program.assign_line_numbers()
 
-        liveness = program.run_liveness_analysis(self.current_scope.get_vars(), live_in=live_in)
+        liveness = program.run_liveness_analysis(self.functions, self.current_scope.get_vars(), live_in=live_in)
         # add_before_push: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
         add_after_push: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
         add_after_pop: List[Tuple[HmmmInstruction, HmmmInstruction]] = []
@@ -739,6 +732,7 @@ class Compiler:
             )
             self.save_variables_during_function_calls(self.functions[func]["program"], live_in=[self.current_scope[INDEX_TO_REGISTER[i]] for i in range(len(self.functions[func]["args"]))])
             self.functions[func]["program"].assign_registers(
+                self.functions,
                 self.current_scope.get_vars()
             )
 
@@ -757,9 +751,8 @@ class Compiler:
                         self.parse_compound(child.body, main_program, is_main=True)
 
         self.save_variables_during_function_calls(main_program)
-        print(main_program)
-        print()
-        main_program.assign_registers(self.current_scope.get_vars())
+
+        main_program.assign_registers(self.functions, self.current_scope.get_vars())
 
         # Add pre-compiled functions to the main program
         for func in self.functions:
